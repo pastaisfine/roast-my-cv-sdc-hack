@@ -8,7 +8,11 @@
     "types": ["node"]
   },
   "include": ["src"],
+  "exclude": ["src/**/*.test.ts"],
   "references": [
+    {
+      "path": "../../lib/radar-data"
+    },
     {
       "path": "../../lib/db"
     },

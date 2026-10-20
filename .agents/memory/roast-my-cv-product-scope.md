@@ -8,3 +8,9 @@ Roast My CV is a CV review tool for Malaysian fresh graduates. It scores a CV ag
 **Why:** the user gave this as the product definition.
 
 **How to apply:** Preserve this audience and outcome set in future product work, and distinguish sourced labour-market evidence from heuristic scores and scenarios.
+
+Future Skills Radar is authorised as an extension of this product, not a separate app or backend migration. It is a synthetic-CV-only prototype. Implementation approval does not authorise paid RunPod provisioning or production deployment. The user wants beginner-friendly explanations and short understanding checks before paid setup.
+
+**Why:** The user explicitly separated implementation approval from infrastructure cost approval and excluded real CV processing and hiring decisions.
+
+**How to apply:** Explain the model, GPU and expected cost before requesting separate provisioning approval. Keep live integration unverified until an approved endpoint passes a smoke test. Never promote editorial AI-exposure drafts to reviewed without explicit human sign-off.

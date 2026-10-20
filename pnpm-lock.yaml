@@ -177,6 +177,9 @@ importers:
       '@workspace/db':
         specifier: workspace:*
         version: link:../../lib/db
+      '@workspace/radar-data':
+        specifier: workspace:*
+        version: link:../../lib/radar-data
       cookie-parser:
         specifier: ^1.4.7
         version: 1.4.7
@@ -406,6 +409,9 @@ importers:
 
   artifacts/roast-my-cv:
     dependencies:
+      '@workspace/radar-data':
+        specifier: workspace:*
+        version: link:../../lib/radar-data
       pdfjs-dist:
         specifier: ^6.4.299
         version: 6.4.299
@@ -642,6 +648,12 @@ importers:
       drizzle-kit:
         specifier: ^0.31.10
         version: 0.31.10
+
+  lib/radar-data:
+    dependencies:
+      '@workspace/api-client-react':
+        specifier: workspace:*
+        version: link:../api-client-react
 
   scripts:
     devDependencies:

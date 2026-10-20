@@ -1,6 +1,6 @@
-# [Project name]
+# Roast My CV
 
-_Replace the heading above with the project's name, and this line with one sentence describing what this app does for users._
+A Malaysian graduate CV-coaching prototype with local readiness analysis and a source-grounded Future Skills Radar.
 
 ## Run & Operate
 
@@ -10,6 +10,8 @@ _Replace the heading above with the project's name, and this line with one sente
 - `pnpm --filter @workspace/api-spec run codegen` — regenerate API hooks and Zod schemas from the OpenAPI spec
 - `pnpm --filter @workspace/db run push` — push DB schema changes (dev only)
 - Required env: `DATABASE_URL` — Postgres connection string
+- Radar checks: `pnpm --filter @workspace/api-server run test:radar`
+- Workspace production builds need build-time `PORT` and `BASE_PATH`; use `PORT=5173 BASE_PATH=/ pnpm -r --if-present run build` for compilation checks. Managed workflows supply runtime values.
 
 ## Stack
 
@@ -22,11 +24,17 @@ _Replace the heading above with the project's name, and this line with one sente
 
 ## Where things live
 
-_Populate as you build — short repo map plus pointers to the source-of-truth file for DB schema, API contracts, theme files, etc._
+- `lib/radar-data` — versioned public reference snapshots, curated roles and shared evidence/pathway logic.
+- `artifacts/api-server/src/lib/radar` — bounded RunPod adapter and matching service.
+- `artifacts/roast-my-cv/src/components/radar` — interactive explorer and role details.
+- `docs/radar-sources.md` — verified official references and source discrepancies.
+- `docs/radar-operator-guide.md` — cost proposal, approval gates, endpoint setup, evaluation and shutdown.
 
 ## Architecture decisions
 
-_Populate as you build — non-obvious choices a reader couldn't infer from the code (3-5 bullets)._
+- Keep radar matching separate from legacy readiness/scenario formulas; semantic similarity is not a qualification score.
+- Use official workbook occupation-group counts for area; never distribute parent totals among editorial role examples.
+- Model calibration and live endpoint verification require separately approved infrastructure. Current runtime has keyword fallback.
 
 ## Product
 

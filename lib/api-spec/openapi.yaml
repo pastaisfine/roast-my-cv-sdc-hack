@@ -11,6 +11,54 @@ tags:
   - name: health
     description: Health operations
 paths:
+  /radar/reference:
+    get:
+      operationId: getRadarReference
+      responses:
+        "200":
+          description: Versioned public reference data, never CV data
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RadarReference"
+  /radar/match:
+    post:
+      operationId: matchRadar
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RadarMatchInput"
+      responses:
+        "200":
+          description: Ephemeral evidence grounded matches
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RadarMatch"
+        "400":
+          description: Invalid input or missing consent
+        "429":
+          description: Capacity limit; use browser keyword fallback
+  /radar/pathway:
+    post:
+      operationId: getRadarPathway
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RadarPathwayInput"
+      responses:
+        "200":
+          description: Pathway for the explicitly selected role
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RadarPathway"
+        "400":
+          description: Unknown role or invalid skills
   /healthz:
     get:
       operationId: healthCheck
@@ -26,6 +74,161 @@ paths:
                 $ref: "#/components/schemas/HealthStatus"
 components:
   schemas:
+    RadarSource:
+      type: object
+      required: [url, title]
+      properties:
+        url: { type: string }
+        title: { type: string }
+    RadarSnapshot:
+      type: object
+      required: [currentPeriod, previousPeriod, currentPublished, previousPublished, currentTotal, previousTotal, sources, coverageNote, attribution, comparisonNote]
+      properties:
+        currentPeriod: { type: string }
+        previousPeriod: { type: string }
+        currentPublished: { type: [string, "null"] }
+        previousPublished: { type: [string, "null"] }
+        currentTotal: { type: integer }
+        previousTotal: { type: integer }
+        sources:
+          type: array
+          items: { $ref: "#/components/schemas/RadarSource" }
+        coverageNote: { type: string }
+        attribution: { type: string }
+        comparisonNote: { type: string }
+    RadarGroup:
+      type: object
+      required: [id, title, current, previous, missingReason]
+      properties:
+        id: { type: string }
+        title: { type: string }
+        current: { type: [integer, "null"], minimum: 0 }
+        previous: { type: [integer, "null"], minimum: 0 }
+        missingReason: { type: [string, "null"] }
+    RadarSkill:
+      type: object
+      required: [id, label, aliases]
+      properties:
+        id: { type: string }
+        label: { type: string }
+        aliases: { type: array, items: { type: string } }
+    RadarSdg:
+      type: object
+      required: [goal, explanation]
+      properties:
+        goal: { type: integer }
+        explanation: { type: string }
+    RadarExposure:
+      type: object
+      required: [score, status, rationale, reviewedBy, reviewedAt]
+      properties:
+        score: { type: [number, "null"], minimum: 0, maximum: 10 }
+        status: { type: string, enum: [draft, reviewed, unavailable] }
+        rationale: { type: string }
+        reviewedBy: { type: [string, "null"] }
+        reviewedAt: { type: [string, "null"] }
+    RadarPathwayTemplate:
+      type: object
+      required: [learn, do, evidence]
+      properties:
+        learn: { type: string }
+        do: { type: string }
+        evidence: { type: string }
+    RadarRole:
+      type: object
+      required: [id, title, groupId, mascoCode, mascoVersion, mappingSource, mappingNote, skillIds, sdgs, laterCareer, legacyRoleTitle, exposure, pathway]
+      properties:
+        id: { type: string }
+        title: { type: string }
+        groupId: { type: string }
+        mascoCode: { type: string }
+        mascoVersion: { type: string }
+        mappingSource: { type: string }
+        mappingNote: { type: string }
+        skillIds: { type: array, items: { type: string } }
+        sdgs: { type: array, items: { $ref: "#/components/schemas/RadarSdg" } }
+        laterCareer: { type: boolean }
+        legacyRoleTitle: { type: [string, "null"] }
+        exposure: { $ref: "#/components/schemas/RadarExposure" }
+        pathway:
+          anyOf:
+            - $ref: "#/components/schemas/RadarPathwayTemplate"
+            - type: "null"
+    RadarReference:
+      type: object
+      required: [version, groups, roles, skills, snapshot, exposureRubric]
+      properties:
+        version: { type: string }
+        groups: { type: array, items: { $ref: "#/components/schemas/RadarGroup" } }
+        roles: { type: array, items: { $ref: "#/components/schemas/RadarRole" } }
+        skills: { type: array, items: { $ref: "#/components/schemas/RadarSkill" } }
+        snapshot: { $ref: "#/components/schemas/RadarSnapshot" }
+        exposureRubric: { type: string }
+    RadarMatchInput:
+      type: object
+      additionalProperties: false
+      required: [text, syntheticOnly, remoteConsent]
+      properties:
+        text: { type: string, minLength: 1, maxLength: 12000 }
+        syntheticOnly: { type: boolean, enum: [true] }
+        remoteConsent: { type: boolean, enum: [true] }
+    RadarEvidence:
+      type: object
+      required: [skillId, text, start, end, kind, method, similarity]
+      properties:
+        skillId: { type: string }
+        text: { type: string }
+        start: { type: integer }
+        end: { type: integer }
+        kind: { type: string, enum: [explicit, inferred, interest, negated, uncertain] }
+        method: { type: string, enum: [keyword, semantic] }
+        similarity: { type: [number, "null"] }
+    RadarRoleMatch:
+      type: object
+      required: [roleId, matchedSkillIds, missingSkillIds]
+      properties:
+        roleId: { type: string }
+        matchedSkillIds: { type: array, items: { type: string } }
+        missingSkillIds: { type: array, items: { type: string } }
+    RadarMatch:
+      type: object
+      required: [version, mode, reason, model, threshold, evidence, roles, truncated, liveVerified]
+      properties:
+        version: { type: string }
+        mode: { type: string, enum: [keyword-local, keyword-fallback, semantic] }
+        reason: { type: string }
+        model: { type: [string, "null"] }
+        threshold: { type: [number, "null"] }
+        evidence: { type: array, items: { $ref: "#/components/schemas/RadarEvidence" } }
+        roles: { type: array, items: { $ref: "#/components/schemas/RadarRoleMatch" } }
+        truncated: { type: boolean }
+        liveVerified: { type: boolean }
+    RadarPathwayInput:
+      type: object
+      additionalProperties: false
+      required: [roleId, matchedSkillIds]
+      properties:
+        roleId: { type: string }
+        matchedSkillIds: { type: array, maxItems: 100, items: { type: string } }
+    RadarPathwayStep:
+      type: object
+      required: [phase, title, learn, do, evidence]
+      properties:
+        phase: { type: string }
+        title: { type: string }
+        learn: { type: string }
+        do: { type: string }
+        evidence: { type: string }
+    RadarPathway:
+      type: object
+      required: [roleId, title, available, noGaps, reason, steps]
+      properties:
+        roleId: { type: string }
+        title: { type: string }
+        available: { type: boolean }
+        noGaps: { type: boolean }
+        reason: { type: string }
+        steps: { type: array, items: { $ref: "#/components/schemas/RadarPathwayStep" } }
     HealthStatus:
       type: object
       properties:
