@@ -1,0 +1,28 @@
+kind = "web"
+previewPath = "/"
+title = "Roast My CV"
+description = "A CV review tool for Malaysian fresh graduates that scores skills against dated labour-market demand data and maps ranked future roles, reskilling pathways, SDG links, and AI-disruption scenarios."
+version = "1.0.0"
+id = "artifacts/roast-my-cv"
+router = "path"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 25465
+
+[services.development]
+run = "pnpm --filter @workspace/roast-my-cv run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/roast-my-cv", "run", "build" ]
+serve = "static"
+publicDir = "artifacts/roast-my-cv/dist/public"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "25465"
+BASE_PATH = "/"

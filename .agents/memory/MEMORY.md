@@ -1,0 +1,1 @@
+- [Roast My CV product scope](roast-my-cv-product-scope.md) — Malaysian fresh grads; CV review against dated demand data, with roles, reskilling, SDG links, and two AI-disruption scenarios.
