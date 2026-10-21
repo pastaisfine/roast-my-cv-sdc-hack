@@ -48,3 +48,6 @@ Thumbs.db
 .cache/
 .local/
 /generated-artifacts/
+.pythonlibs/
+__pycache__/
+/artifacts/api-server/ocr/models/
