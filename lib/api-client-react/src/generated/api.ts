@@ -21,6 +21,8 @@ import type {
 
 import type {
   HealthStatus,
+  OcrImageInput,
+  OcrImageResult,
   RadarMatch,
   RadarMatchInput,
   RadarPathway,
@@ -54,6 +56,94 @@ const withQueryKey = <T extends object, K>(query: T, queryKey: K): T & { queryKe
   }
   return result;
 };
+
+export const getExtractCvImageUrl = () => {
+
+
+
+
+  return `/api/ocr/image`
+}
+
+/**
+ * @summary Ephemeral app-owned CPU OCR, never radar or third-party processing
+ */
+export const extractCvImage = async (ocrImageInput: OcrImageInput, options?: Parameters<typeof customFetch>[1]): Promise<OcrImageResult> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return customFetch<OcrImageResult>(getExtractCvImageUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(ocrImageInput)
+  }
+);}
+
+
+
+
+
+export const getExtractCvImageMutationKey = () => ['extractCvImage'] as const;
+
+export const getExtractCvImageMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof extractCvImage>>, TError,ExtractCvImageMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof extractCvImage>>, TError,ExtractCvImageMutationVariables, TContext> => {
+
+const mutationKey = getExtractCvImageMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof extractCvImage>>, ExtractCvImageMutationVariables> = (props) => {
+          const {data} = props ?? {};
+
+          return  extractCvImage(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ExtractCvImageMutationResult = NonNullable<Awaited<ReturnType<typeof extractCvImage>>>
+    export type ExtractCvImageMutationBody = BodyType<OcrImageInput>
+    export type ExtractCvImageMutationError = ErrorType<void>
+    export type ExtractCvImageMutationVariables = {data: BodyType<OcrImageInput>}
+
+    /**
+ * @summary Ephemeral app-owned CPU OCR, never radar or third-party processing
+ */
+export const useExtractCvImage = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof extractCvImage>>, TError,ExtractCvImageMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof extractCvImage>>,
+        TError,
+        ExtractCvImageMutationVariables,
+        TContext
+      > => {
+      return useMutation(getExtractCvImageMutationOptions(options));
+    }
 
 export const getGetRadarReferenceUrl = () => {
 

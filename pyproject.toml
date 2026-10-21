@@ -1,0 +1,19 @@
+[project]
+name = "roast-my-cv-ocr"
+version = "0.1.0"
+requires-python = ">=3.13,<3.14"
+dependencies = [
+  "easyocr==1.7.2",
+  "torch==2.10.0",
+  "torchvision==0.25.0",
+  "Pillow==12.1.1",
+]
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[tool.uv.sources]
+torch = { index = "pytorch-cpu" }
+torchvision = { index = "pytorch-cpu" }

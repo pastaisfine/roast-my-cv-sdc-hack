@@ -4,6 +4,9 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "test:ocr": "node scripts/ocr-check.mjs",
+    "test:imports": "node scripts/import-check.mjs",
+    "smoke:ocr": "../../.pythonlibs/bin/python ocr/check.py",
     "test:radar": "node scripts/radar-check.mjs",
     "smoke:radar": "node scripts/radar-smoke.mjs",
     "dev": "export NODE_ENV=development && pnpm run build && pnpm run start",

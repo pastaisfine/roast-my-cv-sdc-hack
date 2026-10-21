@@ -11,6 +11,33 @@ tags:
   - name: health
     description: Health operations
 paths:
+  /ocr/image:
+    post:
+      operationId: extractCvImage
+      summary: Ephemeral app-owned CPU OCR, never radar or third-party processing
+      parameters:
+        - in: header
+          name: X-OCR-Consent
+          required: true
+          schema: { type: string, enum: [server-image-processing] }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/OcrImageInput" }
+      responses:
+        "200":
+          description: English text and quality warnings; never cached
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/OcrImageResult" }
+        "400": { description: Missing consent or invalid input }
+        "413": { description: Byte limit exceeded }
+        "415": { description: Unsupported image content }
+        "422": { description: Decode or pixel limits failed }
+        "429": { description: Rate or queue limit reached }
+        "503": { description: CPU worker or verified model unavailable }
+        "504": { description: OCR processing timeout }
   /radar/reference:
     get:
       operationId: getRadarReference
@@ -74,6 +101,21 @@ paths:
                 $ref: "#/components/schemas/HealthStatus"
 components:
   schemas:
+    OcrImageInput:
+      type: object
+      additionalProperties: false
+      required: [imageBase64, ocrConsent]
+      properties:
+        imageBase64: { type: string, minLength: 1, maxLength: 13981016 }
+        ocrConsent: { type: boolean, enum: [true] }
+    OcrImageResult:
+      type: object
+      required: [text, warnings, model, device]
+      properties:
+        text: { type: string, maxLength: 12000 }
+        warnings: { type: array, maxItems: 8, items: { type: string, maxLength: 250 } }
+        model: { type: string, enum: [english_g2] }
+        device: { type: string, enum: [cpu] }
     RadarSource:
       type: object
       required: [url, title]

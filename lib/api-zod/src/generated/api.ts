@@ -8,6 +8,38 @@
 import * as zod from 'zod';
 
 
+/**
+ * @summary Ephemeral app-owned CPU OCR, never radar or third-party processing
+ */
+export const ExtractCvImageHeader = zod.object({
+  "X-OCR-Consent": zod.enum(['server-image-processing'])
+})
+
+export const extractCvImageBodyImageBase64Max = 13981016;
+
+
+
+export const ExtractCvImageBody = zod.object({
+  "imageBase64": zod.string().min(1).max(extractCvImageBodyImageBase64Max),
+  "ocrConsent": zod.literal(true)
+})
+
+export const extractCvImageResponseTextMax = 12000;
+
+export const extractCvImageResponseWarningsItemMax = 250;
+
+export const extractCvImageResponseWarningsMax = 8;
+
+
+
+export const ExtractCvImageResponse = zod.object({
+  "text": zod.string().max(extractCvImageResponseTextMax),
+  "warnings": zod.array(zod.string().max(extractCvImageResponseWarningsItemMax)).max(extractCvImageResponseWarningsMax),
+  "model": zod.enum(['english_g2']),
+  "device": zod.enum(['cpu'])
+})
+
+
 export const getRadarReferenceResponseGroupsItemCurrentMin = 0;
 
 export const getRadarReferenceResponseGroupsItemPreviousMin = 0;

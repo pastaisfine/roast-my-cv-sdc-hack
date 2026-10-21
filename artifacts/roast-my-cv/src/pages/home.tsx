@@ -5,8 +5,7 @@ import { mycolUrl } from "@/lib/roles";
 import { matchRadar, type RadarMatch } from "@workspace/api-client-react";
 import { keywordMatch } from "@workspace/radar-data/matching";
 import { RadarSection } from "@/components/radar/radar-section";
-import * as pdfjsLib from "pdfjs-dist";
-import pdfWorkerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
+import { importCv } from "@/lib/cv-import";
 
 const SAMPLE_CV = `SYNTHETIC SAMPLE — AINA
 Fictional candidate, Malaysia | aina@example.com
@@ -44,28 +43,6 @@ const MAX_CHARS = 12000;
 const localMatch = (text: string) => keywordMatch(text.slice(0, MAX_CHARS), "keyword-local", "Matched in this browser with the fixed skills list. Nothing was sent.");
 const MODE_LABEL: Record<RadarMatch["mode"], string> = { "keyword-local": "Keyword match · in this browser", "keyword-fallback": "Keyword fallback · server", semantic: "Semantic match · server" };
 
-pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
-
-async function extractLocalPdf(file: File) {
-  const loadingTask = pdfjsLib.getDocument({
-    data: new Uint8Array(await file.arrayBuffer()),
-    useSystemFonts: true,
-  });
-  try {
-    const document = await loadingTask.promise;
-    const pages: string[] = [];
-    for (let pageNumber = 1; pageNumber <= document.numPages; pageNumber += 1) {
-      const page = await document.getPage(pageNumber);
-      const content = await page.getTextContent();
-      pages.push(content.items.map((item) => ("str" in item ? item.str : "")).join(" "));
-      page.cleanup();
-    }
-    return pages.join("\n").replace(/\s+/g, " ").trim();
-  } finally {
-    await loadingTask.destroy();
-  }
-}
-
 function RankRows({ rows, prefix }: { rows: RankedRole[]; prefix: string }) {
   return <div>{rows.map((item, index) => <div className="role-card" key={item.role.title} data-testid={`role-result-${prefix}-${index + 1}`}>
     <span className="role-rank">{String(index + 1).padStart(2, "0")}</span>
@@ -81,7 +58,7 @@ function Report({ assessment, radar, radarPending, sentRemotely }: { assessment:
   const top = assessment.rankedRoles[0];
   const sdgs = top?.role.sdgs ?? [];
   return <div aria-live="polite" data-testid="analysis-report">
-    <div className="report-actions"><span className="section-kicker" data-testid="status-analysis">{sentRemotely ? "Readiness scored locally · radar text sent to server with consent" : "Private, local analysis · no upload"}</span></div>
+    <div className="report-actions"><span className="section-kicker" data-testid="status-analysis">{sentRemotely ? "Readiness scored locally · radar text sent to server with consent" : "Readiness and radar matched in this browser · review text not sent"}</span></div>
     <div className="report-top">
       <section className="score-card" aria-label="Readiness score">
         <div className="score-label">CV readiness / 100</div>
@@ -163,7 +140,7 @@ export default function Home() {
   const [cvText, setCvText] = useState(SAMPLE_CV);
   const [assessment, setAssessment] = useState<Assessment | null>(() => analyzeCv(SAMPLE_CV));
   const [error, setError] = useState("");
-  const [status, setStatus] = useState("Synthetic sample loaded. Edit it or use another fictional CV.");
+  const [status, setStatus] = useState("Synthetic sample loaded. Your own CV can also be reviewed locally.");
   const [loading, setLoading] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
   const [radar, setRadar] = useState<RadarMatch | null>(() => localMatch(SAMPLE_CV));
@@ -173,22 +150,32 @@ export default function Home() {
   const [remoteOk, setRemoteOk] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
   const revisionRef = useRef(0);
-  const remote = syntheticOk && remoteOk;
+  const importAbortRef = useRef<AbortController | null>(null);
+  const consentRef = useRef<((allowed: boolean) => void) | null>(null);
+  const [consentPages, setConsentPages] = useState<number | null>(null);
+  const [imported, setImported] = useState(false);
+  const [extractionSource, setExtractionSource] = useState("Built-in synthetic text sample · local");
+  const [importWarnings, setImportWarnings] = useState<string[]>([]);
+  const [previousText, setPreviousText] = useState<string | null>(null);
+  const [sentImages, setSentImages] = useState(0);
+  // Imported documents remain local-review-only, even if radar was previously enabled.
+  const remote = !imported && syntheticOk && remoteOk;
 
   const cancelRemote = () => {
     revisionRef.current += 1;
     abortRef.current?.abort();
     abortRef.current = null;
+    importAbortRef.current?.abort();
+    importAbortRef.current = null;
+    consentRef.current?.(false);
+    consentRef.current = null;
+    setConsentPages(null);
     setRadarPending(false);
     setLoading(false);
   };
-  useEffect(() => () => abortRef.current?.abort(), []);
+  useEffect(() => () => { abortRef.current?.abort(); importAbortRef.current?.abort(); consentRef.current?.(false); }, []);
 
   const runReview = () => {
-    if (!syntheticOk) {
-      setError("Confirm that this is a synthetic CV with no real personal data before reviewing.");
-      return;
-    }
     const trimmed = cvText.trim();
     if (trimmed.length < 60) {
       setError("Add a little more CV text first — at least a few sentences works best.");
@@ -205,7 +192,7 @@ export default function Home() {
       if (!remote) {
         setRadar(localMatch(text));
         setSentRemotely(false);
-        setStatus("Review ready in this browser. Nothing was uploaded.");
+        setStatus("Review ready in this browser. No CV text sent for review. Any earlier OCR image processing is listed below.");
       } else {
         const controller = new AbortController();
         abortRef.current = controller;
@@ -236,43 +223,64 @@ export default function Home() {
     setAssessment(analyzeCv(SAMPLE_CV));
     setRadar(localMatch(SAMPLE_CV));
     setSentRemotely(false);
+    setSyntheticOk(false);
+    setRemoteOk(false);
+    setImported(false);
+    setExtractionSource("Built-in synthetic text sample · local");
+    setImportWarnings([]);
+    setPreviousText(null);
     setError("");
-    setStatus("Synthetic sample loaded. Edit it or use another fictional CV.");
+    setStatus("Synthetic sample loaded instantly in this browser. No upload.");
   };
 
   const handleFile = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
-    setError("");
-    if (file.type !== "application/pdf" && !file.name.toLowerCase().endsWith(".pdf")) {
-      setError("Choose a PDF file.");
-      event.target.value = "";
-      return;
-    }
-    if (file.size > 10 * 1024 * 1024) {
-      setError("This prototype accepts PDFs up to 10 MB.");
-      event.target.value = "";
-      return;
-    }
+    event.target.value = "";
     cancelRemote();
+    setError("");
+    setSyntheticOk(false);
+    setRemoteOk(false);
+    setImported(true);
+    setSentRemotely(false);
+    const controller = new AbortController();
+    importAbortRef.current = controller;
     const importRevision = revisionRef.current;
     setLoading(true);
     setAssessment(null);
     setRadar(null);
-    setStatus("Reading PDF on this device…");
+    setImportWarnings([]);
+    setStatus("Checking file locally. Existing text is kept until extraction succeeds…");
     try {
-      const text = await extractLocalPdf(file);
+      const result = await importCv(file, {
+        signal: controller.signal,
+        progress: message => { if (revisionRef.current === importRevision) setStatus(message); },
+        sent: count => setSentImages(total => total + count),
+        consent: pages => new Promise<boolean>(resolve => {
+          if (controller.signal.aborted) { resolve(false); return; }
+          consentRef.current = resolve; setConsentPages(pages);
+          setStatus("Waiting for OCR consent. No image has been sent.");
+        }),
+      });
       if (revisionRef.current !== importRevision) return;
-      if (text.length < 40) throw new Error("No selectable text found.");
-      setCvText(text.slice(0, MAX_CHARS));
-      setStatus(`Extracted text from ${file.name} on this device${text.length > MAX_CHARS ? " (trimmed to 12,000 characters)" : ""}. Review it, then run the roast.`);
-    } catch {
+      setImportWarnings(result.warnings);
+      if (!result.text.trim()) throw new Error("No readable text found. Existing text was kept. Try a clearer image or paste your CV.");
+      setPreviousText(cvText);
+      setCvText(result.text);
+      setExtractionSource(result.source);
+      setStatus("Import ready to inspect and edit. No review or radar request was started.");
+    } catch (error) {
       if (revisionRef.current !== importRevision) return;
-      setError("We couldn’t read selectable text in this PDF. Try a text-based PDF or paste your CV. Scanned PDFs are not supported.");
-      setStatus("PDF could not be read.");
+      if (controller.signal.aborted || error instanceof DOMException && error.name === "AbortError") {
+        setStatus("Import cancelled. Existing editor text was kept. Any images already sent are listed below.");
+      } else {
+        setError(error instanceof Error ? error.message : "Import failed. Try another file or paste text.");
+        setStatus("Import failed. Existing editor text was kept. Any images already sent are listed below.");
+      }
     } finally {
-      if (revisionRef.current === importRevision) setLoading(false);
-      event.target.value = "";
+      if (revisionRef.current === importRevision) {
+        setLoading(false); importAbortRef.current = null; setConsentPages(null); consentRef.current = null;
+      }
     }
   };
 
@@ -282,6 +290,12 @@ export default function Home() {
     setAssessment(null);
     setRadar(null);
     setSentRemotely(false);
+    setSyntheticOk(false);
+    setRemoteOk(false);
+    setImported(false);
+    setExtractionSource("");
+    setImportWarnings([]);
+    setPreviousText(null);
     setError("");
     setStatus("CV text cleared from this page.");
   };
@@ -299,43 +313,63 @@ export default function Home() {
           <p className="hero-copy">A blunt-but-kind CV coach for Malaysian fresh grads. See what your CV already proves, where the gaps are, and one practical move to make next.</p>
         </div>
         <aside className="hero-aside">
-          <div className="privacy-line"><LockKeyhole className="privacy-icon" size={17} /><span>Local by default. Synthetic CVs only.</span></div>
-          By default, text matching and PDF extraction happen locally in your browser and nothing is sent. Only if you tick both boxes below and run a review is your synthetic CV text sent to our server for radar matching; this app does not retain it. If configured, RunPod processes eligible phrases under its own policies. This prototype is for synthetic (made-up) CVs only.
+          <div className="privacy-line"><LockKeyhole className="privacy-icon" size={17} /><span>Local review. Image OCR only with consent.</span></div>
+          Your own real CV or a fictional CV can be reviewed in this browser. Selectable PDF text stays local. Images and scanned pages go to this app’s CPU OCR worker only after separate permission; never to RunPod. Optional server radar is for explicitly confirmed fictional text only, not imported documents.
         </aside>
       </section>
 
       <div className="workspace">
         <section className="panel input-panel" aria-labelledby="cv-heading">
           <div className="panel-heading"><div><div className="eyebrow">Start here</div><h2 id="cv-heading">Bring your CV.</h2></div><span className="step-no">01 / INPUT</span></div>
-          <p className="input-hint">Paste the text or import a text-based PDF (read on this device). Up to 12,000 characters.</p>
-          <p className="synthetic-banner" data-testid="text-synthetic-only">Prototype: use a synthetic CV only. Do not paste a real person's CV, even locally.</p>
+          <p className="input-hint">Paste text or import PDF, PNG or JPEG. Up to 10 MB, 10 PDF pages and 12,000 editor characters. Images: 4 million pixels, 4,000 per side; PDF scans: 20 million pixels total.</p>
+          <p className="synthetic-banner" data-testid="text-synthetic-only">Your own CV is welcome for local review. Imported documents never go to external radar processing. Check OCR text before reviewing.</p>
           <label className="sr-only" htmlFor="cv-text">CV text</label>
-          <textarea id="cv-text" className="cv-input" value={cvText} maxLength={MAX_CHARS} onChange={(event) => { cancelRemote(); setRadar(null); setCvText(event.target.value.slice(0, MAX_CHARS)); setAssessment(null); setError(""); setStatus("CV edited. Run the review to refresh results."); }} placeholder="Paste your CV text here…" data-testid="input-cv-text" />
+          <textarea id="cv-text" className="cv-input" value={cvText} maxLength={MAX_CHARS} onChange={(event) => { cancelRemote(); setSyntheticOk(false); setRemoteOk(false); setSentRemotely(false); setRadar(null); setCvText(event.target.value.slice(0, MAX_CHARS)); setAssessment(null); setError(""); setStatus("CV edited. Run the review to refresh results."); }} placeholder="Paste your CV text here…" data-testid="input-cv-text" />
           <div className="input-actions">
             <button className="button-primary" type="button" onClick={runReview} disabled={loading} data-testid="button-run-review">{loading ? <><Sparkles size={15} />{remote ? "Working…" : "Working locally…"}</> : <>Roast my CV <ArrowRight size={15} /></>}</button>
             <div style={{ display: "flex", gap: 14, alignItems: "center" }}>
-              <input className="file-input" ref={fileRef} type="file" accept="application/pdf,.pdf" onChange={handleFile} data-testid="input-pdf-file" />
-              <button className="button-quiet file-label" type="button" onClick={() => fileRef.current?.click()} disabled={loading} data-testid="button-import-pdf"><Upload size={14} /> Import PDF</button>
+              <input className="file-input" ref={fileRef} type="file" accept="application/pdf,image/png,image/jpeg,.pdf,.png,.jpg,.jpeg" onChange={handleFile} data-testid="input-pdf-file" />
+              <button className="button-quiet file-label" type="button" onClick={() => fileRef.current?.click()} data-testid="button-import-pdf"><Upload size={14} /> Import PDF / image</button>
             </div>
           </div>
           <div className="input-actions" style={{ marginTop: 3 }}>
             <button className="button-quiet" type="button" onClick={loadSample} data-testid="button-load-sample"><FileText size={14} /> Load sample</button>
             <button className="button-quiet" type="button" onClick={clearCv} data-testid="button-clear-cv"><X size={14} /> Clear</button>
+            {previousText !== null && <button className="button-quiet" type="button" data-testid="button-undo-import" onClick={() => {
+              cancelRemote(); setCvText(previousText); setPreviousText(null); setAssessment(null); setRadar(null); setSentRemotely(false);
+              setSyntheticOk(false); setRemoteOk(false); setImportWarnings([]); setExtractionSource("Restored previous editor text · local");
+              setStatus("Previous editor text restored. Run a local review when ready.");
+            }}>Undo last import</button>}
             <span className="char-count" data-testid="text-character-count">{cvText.length.toLocaleString()} / 12,000 chars</span>
           </div>
+          {loading && <button className="button-quiet" type="button" data-testid="button-cancel-import" onClick={() => { cancelRemote(); setStatus("Import cancelled. Existing editor text kept. Images already sent cannot be recalled; processing is stopped."); }}>Cancel import</button>}
+          {consentPages !== null && <section className="consent" role="dialog" aria-modal="true" aria-labelledby="ocr-consent-title" data-testid="dialog-ocr-consent">
+            <h3 id="ocr-consent-title">Allow server image OCR?</h3>
+            <p>{consentPages} image/page(s) need OCR. Only these images will be sent to this app’s own CPU worker using EasyOCR English english_g2. Selectable PDF pages and the original PDF are not uploaded. Images and extracted text are not logged, saved or cached by this app.</p>
+            <p>This permission is only for this import, including your own real CV. It does not enable review, radar or RunPod. Cancellation stops processing but cannot recall an image already sent.</p>
+            <div className="input-actions">
+              <button className="button-primary" type="button" data-testid="button-allow-ocr" onClick={() => { const resolve = consentRef.current; consentRef.current = null; setConsentPages(null); resolve?.(true); }}>Allow image OCR</button>
+              <button className="button-quiet" type="button" data-testid="button-decline-ocr" onClick={() => { const resolve = consentRef.current; consentRef.current = null; setConsentPages(null); resolve?.(false); }}>Keep text, cancel import</button>
+            </div>
+          </section>}
+          {extractionSource && <p className="input-hint" data-testid="text-extraction-source">Text source: {extractionSource}. Text is editable.</p>}
+          {importWarnings.length > 0 && <ul className="input-hint" data-testid="list-import-warnings">{importWarnings.map((warning, index) => <li key={index}>{warning}</li>)}</ul>}
+          <p className="input-hint" data-testid="status-ocr-sent">{sentImages ? `${sentImages} image/page upload attempt(s) to this app’s CPU OCR in this page session. These may have reached the server even if cancelled or failed. No images sent to RunPod.` : "No images sent for OCR in this page session."}</p>
           <div className="consent" data-testid="panel-consent">
-            <label><input type="checkbox" checked={syntheticOk} onChange={(e) => { cancelRemote(); setSyntheticOk(e.target.checked); }} data-testid="checkbox-synthetic-only" />I confirm this CV is synthetic and contains no real personal data.</label>
-            <label><input type="checkbox" checked={remoteOk} onChange={(e) => { cancelRemote(); setRemoteOk(e.target.checked); }} data-testid="checkbox-remote-consent" />Send my synthetic text to this app’s server when I run a review. If approved and configured, bounded evidence phrases also go to RunPod, an external embedding provider. This app does not log or persist CV text or CV vectors; provider processing is subject to its own policies. Use fictional data only.</label>
+            <strong>Optional synthetic-text radar — separate from OCR</strong>
+            {imported && <p>Imported CVs are local-review-only. Load the fictional built-in sample to try optional server radar.</p>}
+            <label><input type="checkbox" checked={syntheticOk} disabled={imported} onChange={(e) => { cancelRemote(); setSyntheticOk(e.target.checked); }} data-testid="checkbox-synthetic-only" />For optional server radar only: I confirm this text is fictional and contains no real personal data. Not required for local review.</label>
+            <label><input type="checkbox" checked={remoteOk} disabled={imported} onChange={(e) => { cancelRemote(); setRemoteOk(e.target.checked); }} data-testid="checkbox-remote-consent" />Send my confirmed synthetic text to this app’s server when I run a review. If approved and configured, bounded evidence phrases also go to RunPod, an external embedding provider. This app does not log or persist CV text or CV vectors; provider processing is subject to its own policies. Use fictional data only.</label>
             <div className="consent-mode" data-testid="status-processing-mode">Next review: <strong>{remote ? "server matching for radar (readiness stays local)" : "fully local, nothing sent"}</strong></div>
           </div>
           {error && <p className="input-error" role="alert" data-testid="status-input-error">{error}</p>}
           <div className="status-line" role="status" data-testid="status-input">{status}</div>
-          <div className="privacy-note"><ShieldCheck size={14} /><span>{remote ? "No account. Server matching is on for the next review; this app does not retain CV text. Refresh and your pasted CV is gone." : "No account. No upload in local mode. Refresh the page and your pasted CV is gone."}</span></div>
+          <div className="privacy-note"><ShieldCheck size={14} /><span>No account. {remote ? "Optional synthetic server radar is on for the next review." : "Review text stays in this browser."} OCR uploads require separate permission above. Refresh clears imported text and restores the fictional built-in sample.</span></div>
         </section>
 
         <section className="report" id="analysis-report" aria-label="CV analysis report">
           {assessment ? <Report assessment={assessment} radar={radar} radarPending={radarPending} sentRemotely={sentRemotely} /> : <div className="report-empty" data-testid="empty-report">
-            <div className="empty-stamp"><CircleHelp size={25} /></div><h3>Your report starts here.</h3><p>Add a synthetic CV, then run a review (local unless you opt in). We’ll turn keywords into possible directions and a doable next move.</p><div className="example-cue"><ArrowDown size={12} /> local by default · server only with your consent</div>
+            <div className="empty-stamp"><CircleHelp size={25} /></div><h3>Your report starts here.</h3><p>Add your own CV or a fictional sample, inspect the text, then run a local review. We’ll turn keywords into possible directions and a doable next move.</p><div className="example-cue"><ArrowDown size={12} /> local review · image OCR only with separate consent</div>
           </div>}
         </section>
       </div>

@@ -3,6 +3,7 @@ import cors from "cors";
 import pinoHttp from "pino-http";
 import router from "./routes";
 import { logger } from "./lib/logger";
+import ocrRouter from "./routes/ocr";
 
 const app: Express = express();
 
@@ -26,6 +27,8 @@ app.use(
   }),
 );
 app.use(cors());
+// OCR has its own consent check, rate/resource bounds and larger raster-only parser.
+app.use("/api", ocrRouter);
 app.use(express.json({ limit: "64kb" }));
 app.use(express.urlencoded({ extended: true }));
 

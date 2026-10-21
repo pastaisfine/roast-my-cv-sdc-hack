@@ -11,6 +11,8 @@ A Malaysian graduate CV-coaching prototype with local readiness analysis and a s
 - `pnpm --filter @workspace/db run push` — push DB schema changes (dev only)
 - Required env: `DATABASE_URL` — Postgres connection string
 - Radar checks: `pnpm --filter @workspace/api-server run test:radar`
+- OCR setup, CPU requirements, bounds and privacy: `docs/ocr-imports.md`
+- OCR checks: `pnpm --filter @workspace/api-server run test:ocr`, `test:imports` and `smoke:ocr`
 - Workspace production builds need build-time `PORT` and `BASE_PATH`; use `PORT=5173 BASE_PATH=/ pnpm -r --if-present run build` for compilation checks. Managed workflows supply runtime values.
 
 ## Stack
@@ -35,6 +37,8 @@ A Malaysian graduate CV-coaching prototype with local readiness analysis and a s
 - Keep radar matching separate from legacy readiness/scenario formulas; semantic similarity is not a qualification score.
 - Use official workbook occupation-group counts for area; never distribute parent totals among editorial role examples.
 - Model calibration and live endpoint verification require separately approved infrastructure. Current runtime has keyword fallback.
+- Own real CVs are permitted for import and local review. OCR is per-import opt-in to the app-owned CPU worker; external radar remains synthetic-only. All imported CVs are locked to local radar as an extra safeguard.
+- Python OCR dependencies are locked in root `pyproject.toml` / `uv.lock`; setup provisions official English `english_g2` weights before use, and runtime downloads are disabled.
 
 ## Product
 

@@ -1,1 +1,2 @@
 - [Roast My CV product scope](roast-my-cv-product-scope.md) — Malaysian fresh grads; CV review against dated demand data, with roles, reskilling, SDG links, and two AI-disruption scenarios.
+- [OCR runtime](ocr-runtime.md) — CPU-index mapping and per-box rotation can falsely break otherwise compatible English OCR.

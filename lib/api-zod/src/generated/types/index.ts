@@ -7,6 +7,10 @@
  */
 
 export * from './healthStatus';
+export * from './ocrImageInput';
+export * from './ocrImageResult';
+export * from './ocrImageResultDevice';
+export * from './ocrImageResultModel';
 export * from './radarEvidence';
 export * from './radarEvidenceKind';
 export * from './radarEvidenceMethod';

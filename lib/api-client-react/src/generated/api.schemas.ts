@@ -5,6 +5,41 @@
  * API specification
  * OpenAPI spec version: 0.1.0
  */
+export interface OcrImageInput {
+  /**
+     * @minLength 1
+     * @maxLength 13981016
+     */
+  imageBase64: string;
+  ocrConsent: true;
+}
+
+export type OcrImageResultModel = typeof OcrImageResultModel[keyof typeof OcrImageResultModel];
+
+
+export const OcrImageResultModel = {
+  english_g2: 'english_g2',
+} as const;
+
+export type OcrImageResultDevice = typeof OcrImageResultDevice[keyof typeof OcrImageResultDevice];
+
+
+export const OcrImageResultDevice = {
+  cpu: 'cpu',
+} as const;
+
+export interface OcrImageResult {
+  /** @maxLength 12000 */
+  text: string;
+  /**
+     * @maxItems 8
+     * @items.maxLength 250
+     */
+  warnings: string[];
+  model: OcrImageResultModel;
+  device: OcrImageResultDevice;
+}
+
 export interface RadarSource {
   url: string;
   title: string;
