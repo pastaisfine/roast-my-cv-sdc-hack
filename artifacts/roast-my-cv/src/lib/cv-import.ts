@@ -6,7 +6,7 @@ import { extractCvImage, ApiError } from "@workspace/api-client-react";
 
 pdfjs.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
 export const IMPORT_LIMITS = { bytes: 10 * 1024 * 1024, chars: 12000, pages: 10, pixels: 4_000_000, side: 4000, totalPixels: 20_000_000 };
-export type ImportResult = { text: string; warnings: string[]; source: string; sent: number };
+export type ImportResult = { text: string; warnings: string[]; source: string; sent: number; pages: number };
 type Callbacks = {
   signal: AbortSignal;
   consent: (pages: number) => Promise<boolean>;
@@ -78,6 +78,44 @@ export async function rasterDimensions(file: Blob) {
   }
   throw new Error("Choose a valid PNG or JPEG image, or a PDF. Image headers must fit within 128 KB.");
 }
+/** Render one PDF page for an in-browser preview. This path never invokes OCR or uploads page data. */
+export async function renderPdfPagePreview(file: Blob, pageNumber: number, signal: AbortSignal): Promise<Blob> {
+  check(signal);
+  const task = pdfjs.getDocument({ data: new Uint8Array(await file.arrayBuffer()), useSystemFonts: true });
+  const cancel = () => { void task.destroy(); };
+  signal.addEventListener("abort", cancel, { once: true });
+  let page: Awaited<ReturnType<Awaited<typeof task.promise>["getPage"]>> | undefined;
+  let canvas: HTMLCanvasElement | undefined;
+  try {
+    const doc = await task.promise;
+    check(signal);
+    if (!Number.isInteger(pageNumber) || pageNumber < 1 || pageNumber > doc.numPages) throw new Error("Choose a valid PDF page to preview.");
+    page = await doc.getPage(pageNumber);
+    const source = page.getViewport({ scale: 1 });
+    const scale = Math.min(1, 1200 / source.width, 1600 / source.height, Math.sqrt(2_000_000 / (source.width * source.height)));
+    const viewport = page.getViewport({ scale });
+    canvas = document.createElement("canvas");
+    canvas.width = Math.max(1, Math.floor(viewport.width));
+    canvas.height = Math.max(1, Math.floor(viewport.height));
+    const render = page.render({ canvas, viewport });
+    const abortRender = () => render.cancel();
+    signal.addEventListener("abort", abortRender, { once: true });
+    try {
+      await render.promise;
+      check(signal);
+      const blob = await new Promise<Blob>((resolve, reject) => canvas?.toBlob(image => image ? resolve(image) : reject(new Error("PDF page preview could not be rendered.")), "image/jpeg", 0.88));
+      check(signal);
+      return blob;
+    } finally {
+      signal.removeEventListener("abort", abortRender);
+    }
+  } finally {
+    if (canvas) { canvas.width = 0; canvas.height = 0; }
+    page?.cleanup();
+    signal.removeEventListener("abort", cancel);
+    await task.destroy();
+  }
+}
 export async function importCv(file: File, cb: Callbacks): Promise<ImportResult> {
   if (file.size > IMPORT_LIMITS.bytes) throw new Error("Choose a file up to 10 MB.");
   check(cb.signal);
@@ -91,7 +129,7 @@ export async function importCv(file: File, cb: Callbacks): Promise<ImportResult>
     check(cb.signal);
     cb.progress("Reading image with English CPU OCR… You can cancel.");
     const result = await ocr(file, cb);
-    return { text: combinePages([result.text], warnings), warnings: [...warnings, ...result.warnings], source: "Image OCR · app-owned CPU · english_g2", sent: 1 };
+    return { text: combinePages([result.text], warnings), warnings: [...warnings, ...result.warnings], source: "Image OCR · app-owned CPU · english_g2", sent: 1, pages: 1 };
   }
   cb.progress("Inspecting PDF locally. Nothing uploaded…");
   const lifetime = new AbortController();
@@ -158,7 +196,7 @@ export async function importCv(file: File, cb: Callbacks): Promise<ImportResult>
       }
     }
     check(cb.signal);
-    return { text: combinePages(pages, warnings), warnings, source: scans.length ? `PDF · local selectable text + ${scans.length} image page(s) attempted with CPU OCR` : "PDF selectable text · browser only · no upload", sent: scans.length };
+    return { text: combinePages(pages, warnings), warnings, source: scans.length ? `PDF · local selectable text + ${scans.length} image page(s) attempted with CPU OCR` : "PDF selectable text · browser only · no upload", sent: scans.length, pages: doc.numPages };
   } catch (error) {
     if (timedOut) throw new Error("PDF import timed out after 10 minutes. Existing editor text was kept. Import fewer pages or paste text.");
     if (error instanceof Error && error.name === "PasswordException") throw new Error("This PDF is encrypted. Export an unprotected copy and try again.");

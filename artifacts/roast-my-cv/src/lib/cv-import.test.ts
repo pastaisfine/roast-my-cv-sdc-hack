@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { importCv, combinePages, rasterDimensions } from "./cv-import";
+import { importCv, combinePages, rasterDimensions, renderPdfPagePreview } from "./cv-import";
 import { calls, reset, setDimensions, setFailure, setRemoteFailure } from "./cv-import.test-stubs";
 
 const first = "FIRST synthetic graduate CV with Python SQL Excel projects and business analytics.";
@@ -23,7 +23,12 @@ function callbacks(allow = true, signal = new AbortController().signal) {
   return { state, cb: { signal, consent: async (pages: number) => { state.consent += pages; return allow; }, progress() {}, sent(count: number) { state.sent += count; } } };
 }
 // Only tests get this minimal canvas. Actual PDF.js rendering is browser-verified.
-Object.assign(globalThis, { document: { createElement: () => ({ width: 0, height: 0, toBlob: (cb: (blob: Blob) => void) => cb(new Blob(["synthetic jpeg"])) }) } });
+let lastCanvas: { width: number; height: number } | undefined;
+Object.assign(globalThis, { document: { createElement: () => {
+  const canvas = { width: 0, height: 0, toBlob: (cb: (blob: Blob) => void) => cb(new Blob(["synthetic jpeg"], { type: "image/jpeg" })) };
+  lastCanvas = canvas;
+  return canvas;
+} } });
 
 test("ordinary selectable PDFs stay local, preserve line breaks, and release document", async () => {
   reset([first, last]);
@@ -33,6 +38,17 @@ test("ordinary selectable PDFs stay local, preserve line breaks, and release doc
   assert.ok(result.text.includes("\n\n"));
   assert.equal(state.consent, 0); assert.equal(calls.ocr, 0); assert.equal(calls.render, 0);
   assert.equal(result.sent, 0); assert.equal(calls.destroy, 1);
+  assert.equal(result.pages, 2);
+});
+test("PDF page preview renders locally and releases its canvas and PDF document", async () => {
+  reset([first, last]);
+  const result = await renderPdfPagePreview(pdf(), 2, new AbortController().signal);
+  assert.equal(result.type, "image/jpeg");
+  assert.equal(calls.ocr, 0);
+  assert.equal(calls.render, 1);
+  assert.equal(calls.destroy, 1);
+  assert.equal(lastCanvas?.width, 0);
+  assert.equal(lastCanvas?.height, 0);
 });
 test("mixed PDFs OCR only unusable pages and retain original page order without duplicates", async () => {
   reset([first, "", last]);
@@ -40,6 +56,7 @@ test("mixed PDFs OCR only unusable pages and retain original page order without 
   const result = await importCv(pdf(), cb);
   assert.equal(state.consent, 1); assert.equal(calls.ocr, 1); assert.equal(calls.render, 1);
   assert.equal(result.text, `${first}\n\nMIDDLE OCR synthetic page Python SQL Excel\n\n${last}`);
+  assert.equal(result.pages, 3);
 });
 test("scanned PDFs and PNG/JPEG images never upload before OCR-specific consent", async () => {
   for (const file of [pdf(), raster(), jpegHeader()]) {
@@ -52,6 +69,7 @@ test("scanned PDFs and PNG/JPEG images never upload before OCR-specific consent"
   const { cb, state } = callbacks();
   const result = await importCv(raster(), cb);
   assert.ok(result.text.includes("Python SQL"));
+  assert.equal(result.pages, 1);
   assert.equal(state.consent, 1); assert.equal(state.sent, 1);
   assert.deepEqual(await rasterDimensions(jpegHeader()), { width: 1000, height: 560 });
 });

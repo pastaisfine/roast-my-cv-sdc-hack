@@ -5,7 +5,7 @@ import { mycolUrl } from "@/lib/roles";
 import { matchRadar, type RadarMatch } from "@workspace/api-client-react";
 import { keywordMatch } from "@workspace/radar-data/matching";
 import { RadarSection } from "@/components/radar/radar-section";
-import { importCv } from "@/lib/cv-import";
+import { importCv, renderPdfPagePreview } from "@/lib/cv-import";
 
 const SAMPLE_CV = `SYNTHETIC SAMPLE — AINA
 Fictional candidate, Malaysia | aina@example.com
@@ -158,8 +158,45 @@ export default function Home() {
   const [importWarnings, setImportWarnings] = useState<string[]>([]);
   const [previousText, setPreviousText] = useState<string | null>(null);
   const [sentImages, setSentImages] = useState(0);
+  const [previewFile, setPreviewFile] = useState<File | null>(null);
+  const [previewType, setPreviewType] = useState<"pdf" | "image" | null>(null);
+  const [previewPages, setPreviewPages] = useState(1);
+  const [previewPage, setPreviewPage] = useState(1);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [previewError, setPreviewError] = useState("");
   // Imported documents remain local-review-only, even if radar was previously enabled.
   const remote = !imported && syntheticOk && remoteOk;
+
+  useEffect(() => {
+    if (!previewFile || !previewType) return;
+    const controller = new AbortController();
+    let active = true;
+    let objectUrl: string | null = null;
+    setPreviewUrl(null);
+    setPreviewError("");
+    setPreviewLoading(true);
+    const render = async () => {
+      try {
+        const blob = previewType === "pdf"
+          ? await renderPdfPagePreview(previewFile, previewPage, controller.signal)
+          : previewFile;
+        if (!active) return;
+        objectUrl = URL.createObjectURL(blob);
+        setPreviewUrl(objectUrl);
+      } catch (error) {
+        if (active && !controller.signal.aborted) setPreviewError(error instanceof Error ? error.message : "This page preview could not be rendered.");
+      } finally {
+        if (active) setPreviewLoading(false);
+      }
+    };
+    void render();
+    return () => {
+      active = false;
+      controller.abort();
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [previewFile, previewType, previewPage]);
 
   const cancelRemote = () => {
     revisionRef.current += 1;
@@ -229,6 +266,10 @@ export default function Home() {
     setExtractionSource("Built-in synthetic text sample · local");
     setImportWarnings([]);
     setPreviousText(null);
+    setPreviewFile(null);
+    setPreviewType(null);
+    setPreviewPages(1);
+    setPreviewPage(1);
     setError("");
     setStatus("Synthetic sample loaded instantly in this browser. No upload.");
   };
@@ -238,6 +279,12 @@ export default function Home() {
     if (!file) return;
     event.target.value = "";
     cancelRemote();
+    setPreviewFile(file);
+    setPreviewType(null);
+    setPreviewPages(1);
+    setPreviewPage(1);
+    setPreviewUrl(null);
+    setPreviewError("");
     setError("");
     setSyntheticOk(false);
     setRemoteOk(false);
@@ -252,6 +299,9 @@ export default function Home() {
     setImportWarnings([]);
     setStatus("Checking file locally. Existing text is kept until extraction succeeds…");
     try {
+      const isPdf = new TextDecoder().decode(await file.slice(0, 5).arrayBuffer()) === "%PDF-";
+      if (revisionRef.current !== importRevision) return;
+      setPreviewType(isPdf ? "pdf" : "image");
       const result = await importCv(file, {
         signal: controller.signal,
         progress: message => { if (revisionRef.current === importRevision) setStatus(message); },
@@ -264,6 +314,8 @@ export default function Home() {
       });
       if (revisionRef.current !== importRevision) return;
       setImportWarnings(result.warnings);
+      setPreviewPages(result.pages);
+      setPreviewPage(current => Math.min(current, result.pages));
       if (!result.text.trim()) throw new Error("No readable text found. Existing text was kept. Try a clearer image or paste your CV.");
       setPreviousText(cvText);
       setCvText(result.text);
@@ -272,8 +324,10 @@ export default function Home() {
     } catch (error) {
       if (revisionRef.current !== importRevision) return;
       if (controller.signal.aborted || error instanceof DOMException && error.name === "AbortError") {
+        setPreviewFile(null); setPreviewType(null); setPreviewPages(1); setPreviewPage(1);
         setStatus("Import cancelled. Existing editor text was kept. Any images already sent are listed below.");
       } else {
+        setPreviewFile(null); setPreviewType(null); setPreviewPages(1); setPreviewPage(1);
         setError(error instanceof Error ? error.message : "Import failed. Try another file or paste text.");
         setStatus("Import failed. Existing editor text was kept. Any images already sent are listed below.");
       }
@@ -296,8 +350,24 @@ export default function Home() {
     setExtractionSource("");
     setImportWarnings([]);
     setPreviousText(null);
+    setPreviewFile(null);
+    setPreviewType(null);
+    setPreviewPages(1);
+    setPreviewPage(1);
     setError("");
     setStatus("CV text cleared from this page.");
+  };
+
+  const handleTextChange = (event: ChangeEvent<HTMLTextAreaElement>) => {
+    cancelRemote();
+    setSyntheticOk(false);
+    setRemoteOk(false);
+    setSentRemotely(false);
+    setRadar(null);
+    setCvText(event.target.value.slice(0, MAX_CHARS));
+    setAssessment(null);
+    setError("");
+    setStatus("CV edited. Run the review to refresh results.");
   };
 
   return <main className="app-shell">
@@ -324,7 +394,29 @@ export default function Home() {
           <p className="input-hint">Paste text or import PDF, PNG or JPEG. Up to 10 MB, 10 PDF pages and 12,000 editor characters. Images: 4 million pixels, 4,000 per side; PDF scans: 20 million pixels total.</p>
           <p className="synthetic-banner" data-testid="text-synthetic-only">Your own CV is welcome for local review. Imported documents never go to external radar processing. Check OCR text before reviewing.</p>
           <label className="sr-only" htmlFor="cv-text">CV text</label>
-          <textarea id="cv-text" className="cv-input" value={cvText} maxLength={MAX_CHARS} onChange={(event) => { cancelRemote(); setSyntheticOk(false); setRemoteOk(false); setSentRemotely(false); setRadar(null); setCvText(event.target.value.slice(0, MAX_CHARS)); setAssessment(null); setError(""); setStatus("CV edited. Run the review to refresh results."); }} placeholder="Paste your CV text here…" data-testid="input-cv-text" />
+          {previewFile ? <div className="import-review-grid">
+            <section className="page-preview" aria-label="Imported page preview" data-testid="panel-page-preview">
+              <div className="page-preview-head">
+                <strong>{previewType === "pdf" ? "PDF page" : "Original image"}</strong>
+                {previewType === "pdf" && <label className="page-picker">Page
+                  <select aria-label="PDF preview page" value={previewPage} onChange={event => setPreviewPage(Number(event.target.value))} data-testid="select-preview-page">
+                    {Array.from({ length: previewPages }, (_, index) => <option key={index + 1} value={index + 1}>{index + 1}</option>)}
+                  </select>
+                  <span>of {previewPages}</span>
+                </label>}
+              </div>
+              <div className="page-preview-frame">
+                {previewLoading && <span className="preview-message" role="status">Preparing local preview…</span>}
+                {previewError && <span className="preview-message preview-error" role="status">{previewError}</span>}
+                {previewUrl && <img src={previewUrl} alt={previewType === "pdf" ? `Local preview of PDF page ${previewPage}` : "Local preview of imported image"} data-testid="image-page-preview" />}
+              </div>
+              <p className="preview-privacy">Preview is rendered in this browser. It is not uploaded for review.</p>
+            </section>
+            <div className="import-text-column">
+              <label className="editor-label" htmlFor="cv-text">Editable extracted text</label>
+              <textarea id="cv-text" className="cv-input" value={cvText} maxLength={MAX_CHARS} onChange={handleTextChange} placeholder="Paste your CV text here…" data-testid="input-cv-text" />
+            </div>
+          </div> : <textarea id="cv-text" className="cv-input" value={cvText} maxLength={MAX_CHARS} onChange={handleTextChange} placeholder="Paste your CV text here…" data-testid="input-cv-text" />}
           <div className="input-actions">
             <button className="button-primary" type="button" onClick={runReview} disabled={loading} data-testid="button-run-review">{loading ? <><Sparkles size={15} />{remote ? "Working…" : "Working locally…"}</> : <>Roast my CV <ArrowRight size={15} /></>}</button>
             <div style={{ display: "flex", gap: 14, alignItems: "center" }}>
@@ -337,6 +429,7 @@ export default function Home() {
             <button className="button-quiet" type="button" onClick={clearCv} data-testid="button-clear-cv"><X size={14} /> Clear</button>
             {previousText !== null && <button className="button-quiet" type="button" data-testid="button-undo-import" onClick={() => {
               cancelRemote(); setCvText(previousText); setPreviousText(null); setAssessment(null); setRadar(null); setSentRemotely(false);
+              setPreviewFile(null); setPreviewType(null); setPreviewPages(1); setPreviewPage(1);
               setSyntheticOk(false); setRemoteOk(false); setImportWarnings([]); setExtractionSource("Restored previous editor text · local");
               setStatus("Previous editor text restored. Run a local review when ready.");
             }}>Undo last import</button>}
