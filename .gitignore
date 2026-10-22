@@ -51,3 +51,8 @@ Thumbs.db
 .pythonlibs/
 __pycache__/
 /artifacts/api-server/ocr/models/
+
+# Local environment files. Never commit a secret: these hold the RunPod API key.
+.env
+.env.*
+!.env.example
