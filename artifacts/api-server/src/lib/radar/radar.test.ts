@@ -1,9 +1,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { keywordMatch, extractPhrases, canInfer, classifyEvidence } from "@workspace/radar-data/matching";
+import { blendMatchScore, buildProfileQuery, canInfer, classifyEvidence, extractPhrases, groupDemandChange, keywordMatch, roleMatches } from "@workspace/radar-data/matching";
 import { makeRadarPathway } from "@workspace/radar-data/pathway";
 import { groups, roles, skills } from "@workspace/radar-data";
-import { validateVectors, embed, MODEL, DIMENSIONS, cosine, THRESHOLD, MARGIN } from "./embeddings";
+import { validateVectors, embed, MODEL, MODEL_REVISION, DIMENSIONS, cosine, THRESHOLD, MARGIN, ROLE_VECTOR_OFFSET } from "./embeddings";
 import { matchRadarText } from "./service";
 import { analyzeCv } from "../../../../roast-my-cv/src/lib/analyze";
 import { layoutTreemap, qoq } from "../../../../roast-my-cv/src/components/radar/treemap-layout";
@@ -96,7 +96,45 @@ test("vector validator rejects wrong models, dimensions, NaNs, zeros, duplicate 
   }
   assert.equal(cosine(vector(0), vector(1)), 0);
   assert.equal(cosine(vector(), vector()), 1);
-  assert(THRESHOLD > .8 && MARGIN > 0);
+  // The topical floor is the cosine at which an occupation earns no topical credit.
+  assert(THRESHOLD > 0.7 && THRESHOLD < 0.8);
+  assert(MARGIN > 0);
+});
+test("demand direction is the published quarter-on-quarter figure, and unavailable when it cannot be computed", () => {
+  assert.equal(groupDemandChange("2"), (285907 - 315768) / 315768);
+  assert.equal(groupDemandChange("1"), (87950 - 99447) / 99447);
+  assert.equal(groupDemandChange("99"), null);
+  // Every curated occupation sits in a DOSM major group that has a published comparison.
+  for (const role of roles) assert.notEqual(groupDemandChange(role.groupId), null, role.id);
+});
+test("occupation match carries demand evidence and no topical score until an embedding runs", () => {
+  const result = keywordMatch("I used SQL to analyse sales records.");
+  assert.ok(result.roles.length > 0);
+  for (const role of result.roles) {
+    assert.equal(role.topicalScore, null);
+    assert.equal(role.matchScore, null);
+    assert(role.overlapScore >= 0 && role.overlapScore <= 1);
+    assert(role.demandChange === null || (role.demandChange > -1 && role.demandChange < 1));
+  }
+  // Deterministic keyword overlap must still separate evidenced roles from untouched ones.
+  const evidenced = roleMatches(result.evidence).filter(r => r.matchedSkillIds.length > 0);
+  assert.ok(evidenced.length > 0);
+  for (const role of evidenced) assert(role.overlapScore > 0);
+});
+test("profile query lists only evidenced skill labels and refuses an empty profile", () => {
+  assert.equal(buildProfileQuery(["sql", "python"]), "query: SQL, Python");
+  assert.equal(buildProfileQuery([]), "");
+});
+test("match score blends topical, overlap and demand with published weights", () => {
+  assert.equal(blendMatchScore(null, 1, 0), null);
+  const strong = blendMatchScore(0.95, 1, 0)!;
+  const weak = blendMatchScore(0.76, 0, 0)!;
+  assert(strong > weak);
+  assert(strong <= 100 && strong >= 0);
+  // A shrinking occupation group must not outscore the same profile in a growing group.
+  const growing = blendMatchScore(0.9, 0.5, 0.1)!;
+  const shrinking = blendMatchScore(0.9, 0.5, -0.2)!;
+  assert(growing > shrinking);
 });
 test("RunPod uses verified embeddings path/payload and propagates abort, no retries", async () => {
   let calls = 0;
@@ -126,6 +164,58 @@ test("unconfigured semantic service stays usable via evidence-checked fallback",
   } finally {
     if (old === undefined) delete process.env.RADAR_RUNPOD_APPROVED;
     else process.env.RADAR_RUNPOD_APPROVED = old;
+  }
+});
+test("semantic path ranks every occupation, embeds only the evidenced profile, and sorts by match score", async () => {
+  const keys = ["RADAR_RUNPOD_APPROVED", "RUNPOD_ENDPOINT_ID", "RUNPOD_API_KEY", "RADAR_MODEL_REVISION"] as const;
+  const saved = Object.fromEntries(keys.map(k => [k, process.env[k]]));
+  process.env.RADAR_RUNPOD_APPROVED = "true";
+  process.env.RUNPOD_ENDPOINT_ID = "synthetic-endpoint";
+  process.env.RUNPOD_API_KEY = "synthetic-not-a-secret";
+  process.env.RADAR_MODEL_REVISION = MODEL_REVISION;
+  const sent: string[][] = [];
+  const transport: typeof fetch = async (_url, options) => {
+    const body = JSON.parse(String((options as RequestInit).body)) as { input: string[] };
+    sent.push(body.input);
+    const data = body.input.map((_text, index) => ({
+      index,
+      embedding: Array.from({ length: DIMENSIONS }, (_, d) => (index === d ? 1 : 0)),
+    }));
+    return new Response(JSON.stringify({ model: MODEL, data }));
+  };
+  try {
+    const result = await matchRadarText("I used SQL to analyse sales records.", undefined, transport);
+    assert.equal(result.mode, "semantic");
+    assert.equal(result.liveVerified, false);
+    assert.equal(result.roles.length, roles.length);
+    // The profile is the only single-item request: one profile, not one per phrase.
+    const profiles = sent.filter((input) => input.length === 1);
+    assert.equal(profiles.length, 1);
+    // "SQL" and "sales" are both named outright, so both enter the evidenced profile.
+    assert.equal(profiles[0][0], "query: SQL, Sales");
+    // Every occupation carries a topical score and a blended match score.
+    for (const role of result.roles) {
+      assert(role.topicalScore !== null);
+      assert(role.matchScore !== null);
+      assert(role.topicalScore! >= 0 && role.topicalScore! <= 1);
+      assert(role.matchScore! >= 0 && role.matchScore! <= 100);
+    }
+    // The stub returns a one-hot vector per input index within each request, and the
+    // catalogue is embedded in batches of 32, so exactly one occupation passage lands
+    // on index zero of its batch. That is the only perfect match for a one-item
+    // profile request, and it pins the role-vector offset to the catalogue order.
+    const perfect = result.roles.filter(r => r.topicalScore === 1);
+    assert.equal(perfect.length, 1);
+    assert.equal(perfect[0].roleId, roles[64 - ROLE_VECTOR_OFFSET].id);
+    // The list is ordered by match score, strongest first.
+    for (let i = 1; i < result.roles.length; i++) {
+      assert((result.roles[i - 1].matchScore ?? -1) >= (result.roles[i].matchScore ?? -1));
+    }
+  } finally {
+    for (const k of keys) {
+      if (saved[k] === undefined) delete process.env[k];
+      else process.env[k] = saved[k];
+    }
   }
 });
 test("legacy readiness and disruption formulas retain exact regressions", () => {

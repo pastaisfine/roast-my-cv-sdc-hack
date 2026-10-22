@@ -35,10 +35,13 @@ A Malaysian graduate CV-coaching prototype with local readiness analysis and a s
 ## Architecture decisions
 
 - Keep radar matching separate from legacy readiness/scenario formulas; semantic similarity is not a qualification score.
+- **The embedding model ranks occupations; it never decides whether a phrase is a skill claim.** The deterministic evidence classifier (`classifyEvidence` / `canInfer`) owns that decision, in English, Malay and Chinese. Measured on the live endpoint: the z-scores of true claims and of non-claims overlap completely, so no similarity threshold can separate them. Ranking needs no absolute threshold, which removes the miscalibration risk rather than retuning it.
+- A live RunPod endpoint serves `intfloat/multilingual-e5-small` for occupation ranking. Endpoint id, GPU, latencies, rate and the three provisioning traps (CUDA constraint, Hub registry auth, `DTYPES=float16`) are recorded in `docs/radar-operator-guide.md` §5.1. It scales to zero, so it carries no standing charge.
+- The embedding cache is an optimisation, never a dependency: a missing `DATABASE_URL` or a database outage fails open to a fresh embedding instead of silently disabling semantic matching.
 - Use official workbook occupation-group counts for area; never distribute parent totals among editorial role examples.
-- Model calibration and live endpoint verification require separately approved infrastructure. Current runtime has keyword fallback.
 - Own real CVs are permitted for import and local review. OCR is per-import opt-in to the app-owned CPU worker; external radar remains synthetic-only. All imported CVs are locked to local radar as an extra safeguard.
 - Python OCR dependencies are locked in root `pyproject.toml` / `uv.lock`; setup provisions official English `english_g2` weights before use, and runtime downloads are disabled.
+- The client calls relative `/api` paths. `artifacts/roast-my-cv/vite.config.ts` proxies `/api` to `127.0.0.1:8080` in dev and preview, so a local checkout can actually reach the API server. Without it every request silently falls back to the bundled reference data.
 
 ## Product
 

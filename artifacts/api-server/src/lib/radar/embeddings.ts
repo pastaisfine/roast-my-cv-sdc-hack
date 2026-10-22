@@ -5,7 +5,7 @@ import { roles, skills, version } from "@workspace/radar-data";
 export const MODEL = "intfloat/multilingual-e5-small";
 export const MODEL_REVISION = "614241f622f53c4eeff9890bdc4f31cfecc418b3";
 export const DIMENSIONS = 384;
-export const THRESHOLD = 0.87; // Provisional safety gate, not measured accuracy.
+export const THRESHOLD = 0.75; // Cosine below which an occupation earns no topical credit.
 export const MARGIN = 0.04;
 export const WORKER = "runpod/worker-infinity-embedding:1.1.4";
 export type EmbeddingConfig = { endpoint: string; key: string; revision: string };
@@ -69,26 +69,54 @@ export const publicTexts = [
   ...skills.map(s => `passage: ${s.label}; ${s.aliases.join("; ")}`),
   ...roles.map(r => `passage: ${r.title}; ${r.skillIds.map(id => skills.find(s => s.id === id)?.label ?? id).join("; ")}`),
 ];
+/** publicTexts is [skill passages..., role passages...]; occupation vectors start here. */
+export const ROLE_VECTOR_OFFSET = skills.length;
+/** Occupation skill-profile vectors, in the same order as the `roles` catalogue. */
+export function roleVectors(catalogue: number[][]): number[][] {
+  return catalogue.slice(ROLE_VECTOR_OFFSET);
+}
 let memory: { key: string; vectors: number[][] } | undefined;
-export async function catalogueVectors(config: EmbeddingConfig, signal: AbortSignal): Promise<number[][]> {
+/**
+ * The cache is an optimisation, never a dependency. A database outage, a missing
+ * DATABASE_URL or a corrupt row must not disable semantic matching, so every cache
+ * read and write is best effort and fails open to a fresh embedding.
+ */
+async function readCachedVectors(key: string): Promise<number[][] | null> {
+  try {
+    const { db, radarPublicCache } = await import("@workspace/db");
+    const cached = await db.select().from(radarPublicCache).where(eq(radarPublicCache.key, key)).limit(1);
+    if (!cached[0]) return null;
+    return validateVectors(cached[0].payload, publicTexts.length);
+  } catch {
+    return null;
+  }
+}
+async function writeCachedVectors(key: string, vectors: number[][]): Promise<void> {
+  try {
+    const { db, radarPublicCache } = await import("@workspace/db");
+    await db.insert(radarPublicCache).values({
+      key,
+      payload: { model: MODEL, data: vectors.map((embedding, index) => ({ index, embedding })) },
+    }).onConflictDoNothing();
+  } catch {
+    // Best effort only. These vectors are public reference data and can be recomputed.
+  }
+}
+export async function catalogueVectors(config: EmbeddingConfig, signal: AbortSignal, transport?: typeof fetch): Promise<number[][]> {
   const key = `embeddings:${version}:${MODEL}:${config.revision}:${WORKER}:${createHash("sha256").update(JSON.stringify(publicTexts)).digest("hex")}`;
   if (memory?.key === key) return memory.vectors;
-  const { db, radarPublicCache } = await import("@workspace/db");
-  const cached = await db.select().from(radarPublicCache).where(eq(radarPublicCache.key, key)).limit(1);
+  const cached = await readCachedVectors(key);
   if (signal.aborted) throw new Error("aborted");
-  if (cached[0]) {
-    const vectors = validateVectors(cached[0].payload, publicTexts.length);
-    memory = { key, vectors };
-    return vectors;
+  if (cached) {
+    memory = { key, vectors: cached };
+    return cached;
   }
   const vectors: number[][] = [];
   for (let i = 0; i < publicTexts.length; i += 32) {
-    vectors.push(...await embed(publicTexts.slice(i, i + 32), config, signal));
+    vectors.push(...await embed(publicTexts.slice(i, i + 32), config, signal, transport));
   }
   if (signal.aborted) throw new Error("aborted");
-  await db.insert(radarPublicCache).values({
-    key, payload: { model: MODEL, data: vectors.map((embedding, index) => ({ index, embedding })) },
-  }).onConflictDoNothing();
+  await writeCachedVectors(key, vectors);
   memory = { key, vectors };
   return vectors;
 }

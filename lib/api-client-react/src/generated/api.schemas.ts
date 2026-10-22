@@ -188,6 +188,31 @@ export interface RadarRoleMatch {
   roleId: string;
   matchedSkillIds: string[];
   missingSkillIds: string[];
+  /**
+     * Share of the occupation's skill list evidenced in the CV text. Deterministic and keyword-derived.
+     * @minimum 0
+     * @maximum 1
+     */
+  overlapScore: number;
+  /**
+     * Quarter-on-quarter change in online job offerings for this occupation's DOSM major group. Null when the comparison is unavailable.
+     * @nullable
+     */
+  demandChange: number | null;
+  /**
+     * Cosine similarity between the evidenced-skill profile and the occupation's skill profile from the embedding model. Topical fit only, never a qualification or probability. Null when no embedding was computed.
+     * @minimum 0
+     * @maximum 1
+     * @nullable
+     */
+  topicalScore: number | null;
+  /**
+     * Blended occupation match score from topical similarity, keyword overlap and demand direction, using published weights. Null when no embedding was computed.
+     * @minimum 0
+     * @maximum 100
+     * @nullable
+     */
+  matchScore: number | null;
 }
 
 export type RadarMatchMode = typeof RadarMatchMode[keyof typeof RadarMatchMode];

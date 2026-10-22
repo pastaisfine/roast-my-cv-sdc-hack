@@ -2,6 +2,7 @@ import { useMemo } from "react";
 import { AlertTriangle, ArrowRight, Check, CircleDashed, Compass } from "lucide-react";
 import type { RadarEvidenceKind, RadarMatch, RadarReference, RadarRole } from "@workspace/api-client-react";
 import { makeRadarPathway } from "@workspace/radar-data/pathway";
+import { MATCH_WEIGHTS, TOPICAL_RANGE } from "@workspace/radar-data/matching";
 
 const KIND_LABEL: Record<RadarEvidenceKind, string> = {
   explicit: "Explicit claim",
@@ -26,6 +27,8 @@ export function RoleDetails({ role, reference, match, skillLabel }: {
   // Local pathway helper: selecting a role makes no network request.
   const pathway = useMemo(() => makeRadarPathway(role.id, matched), [role.id, matched]);
   const exp = role.exposure;
+  const snap = reference.snapshot;
+  const groupTitle = reference.groups.find(g => g.id === role.groupId)?.title ?? null;
 
   return <div className="rd" data-testid={`panel-role-${role.id}`}>
     <div className="rd-head">
@@ -62,6 +65,22 @@ export function RoleDetails({ role, reference, match, skillLabel }: {
       {missing.length === 0 && match && <p className="input-hint" style={{ margin: "8px 0 0" }}>No gaps in this role's skill list. Depth still matters: show it with outcomes.</p>}
       {!match && <p className="input-hint" style={{ margin: "8px 0 0" }}>Run a review to see which of these your CV evidences.</p>}
     </div>
+
+    {roleMatch && <div className="rd-block" data-testid="panel-role-fit">
+      <div className="split-label">Topical fit, skill overlap and demand</div>
+      {roleMatch.matchScore != null
+        ? <p className="rd-exp" data-testid="text-role-match-score"><strong>{roleMatch.matchScore}/100</strong> occupation match score</p>
+        : <p className="rd-exp draft" data-testid="text-role-no-embedding"><strong>No topical fit computed</strong> The embedding model was not used for this review, so only keyword overlap and demand direction are known.</p>}
+      <ul className="rd-small" data-testid="list-role-fit-terms">
+        <li data-testid="text-role-topical">Topical fit {roleMatch.topicalScore == null ? "not computed" : roleMatch.topicalScore.toFixed(3)} — how close your evidenced skills sit to this occupation's skill profile. Topical fit only; never a qualification score or a probability.</li>
+        <li data-testid="text-role-overlap">Skill overlap {Math.round(roleMatch.overlapScore * 100)}% — {matched.length} of {role.skillIds.length} of this occupation's skills are named in your CV.</li>
+        <li data-testid="text-role-demand">Demand direction {roleMatch.demandChange == null ? "unavailable for this group" : `${roleMatch.demandChange > 0 ? "+" : ""}${(roleMatch.demandChange * 100).toFixed(1)}%`} — {groupTitle ? `${groupTitle} online job offerings, ${snap.previousPeriod} to ${snap.currentPeriod}` : `online job offerings, ${snap.previousPeriod} to ${snap.currentPeriod}`}.</li>
+      </ul>
+      <details className="rd-fold"><summary>How this score is calculated</summary>
+        <p>Match score = {MATCH_WEIGHTS.topical} × topical fit + {MATCH_WEIGHTS.overlap} × skill overlap + {MATCH_WEIGHTS.demand} × demand direction. Topical credit starts at cosine {TOPICAL_RANGE.floor}.</p>
+        <p>{snap.comparisonNote}</p>
+      </details>
+    </div>}
 
     <div className="rd-block">
       <div className="split-label">AI task exposure</div>

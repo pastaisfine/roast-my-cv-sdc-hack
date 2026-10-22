@@ -72,10 +72,25 @@ export default defineConfig({
     fs: {
       strict: true,
     },
+    // The client calls relative /api paths. Locally the API server listens on 8080,
+    // so without this proxy the browser never reaches the backend and every request
+    // silently falls back to the bundled reference data.
+    proxy: {
+      '/api': {
+        target: process.env.API_PROXY_TARGET ?? 'http://127.0.0.1:8080',
+        changeOrigin: true,
+      },
+    },
   },
   preview: {
     port,
     host: '0.0.0.0',
     allowedHosts: true,
+    proxy: {
+      '/api': {
+        target: process.env.API_PROXY_TARGET ?? 'http://127.0.0.1:8080',
+        changeOrigin: true,
+      },
+    },
   },
 });

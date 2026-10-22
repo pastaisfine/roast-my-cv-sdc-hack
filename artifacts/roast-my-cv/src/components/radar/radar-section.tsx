@@ -28,6 +28,9 @@ export function RadarSection({ match, pending, modeLabel }: { match: RadarMatch 
 
   const goals = useMemo(() => [...new Set(reference.roles.flatMap((r) => r.sdgs.map((s) => s.goal)))].sort((a, b) => a - b), [reference]);
   const matchedRoleIds = useMemo(() => new Set((match?.roles ?? []).filter((r) => r.matchedSkillIds.length > 0).map((r) => r.roleId)), [match]);
+  const scoreByRole = useMemo(() => new Map((match?.roles ?? []).map((r) => [r.roleId, r])), [match]);
+  // Occupations the embedding model ranked closest to the evidenced skill profile.
+  const closest = useMemo(() => (match?.roles ?? []).filter(r => r.matchScore != null).slice(0, 5), [match]);
   const groupInfo = (g: RadarGroup) => {
     const roles = reference.roles.filter((r) => r.groupId === g.id);
     return {
@@ -107,6 +110,20 @@ export function RadarSection({ match, pending, modeLabel }: { match: RadarMatch 
       </button></li>; })}
     </ul>}
 
+    {closest.length > 0 && <div className="rt-closest" data-testid="radar-closest">
+      <div className="split-label">Closest occupations to your evidenced skills</div>
+      <p className="rd-small">Ranked by topical fit from the embedding model, blended with skill overlap and demand direction. Topical fit is not a qualification score and not a probability.</p>
+      <ul>
+        {closest.map((r) => { const target = reference.roles.find(x => x.id === r.roleId); return <li key={r.roleId}>
+          <button type="button" onClick={() => { if (target?.groupId) selectGroup(target.groupId); setRoleId(r.roleId); }} data-testid={`row-closest-${r.roleId}`}>
+            <span>{target?.title ?? r.roleId}</span>
+            <span className="rd-mono" data-testid={`text-closest-score-${r.roleId}`}>{r.matchScore}/100</span>
+            <span>{Math.round(r.overlapScore * 100)}% of its skills named{r.demandChange == null ? "" : ` · demand ${r.demandChange > 0 ? "+" : ""}${(r.demandChange * 100).toFixed(1)}%`}</span>
+          </button>
+        </li>; })}
+      </ul>
+    </div>}
+
     {unscaled.length > 0 && <div className="rt-unscaled" data-testid="list-unscaled-groups">
       <div className="split-label">No verified count · shown unscaled</div>
       {unscaled.map((g) => <button key={g.id} type="button" className={g.id === groupId ? "is-selected" : ""} onClick={() => selectGroup(g.id)} data-testid={`button-unscaled-${g.id}`}>{g.title}<small>{g.missingReason ?? "Count not verified"}</small></button>)}
@@ -125,11 +142,12 @@ export function RadarSection({ match, pending, modeLabel }: { match: RadarMatch 
       {group.missingReason && <p className="rd-small">{group.missingReason}</p>}
       <div className="rt-roles" role="group" aria-label={`Roles in ${group.title}`}>
         {gInfo.roles.length === 0 && <p className="rd-small">No curated roles in this group yet.</p>}
-        {gInfo.roles.map((r) => { const cv = matchedRoleIds.has(r.id); const sdg = layer === "sdg" && goal != null && r.sdgs.some((s) => s.goal === goal); return <button key={r.id} type="button" aria-pressed={roleId === r.id}
+        {gInfo.roles.map((r) => { const cv = matchedRoleIds.has(r.id); const sdg = layer === "sdg" && goal != null && r.sdgs.some((s) => s.goal === goal); const fit = scoreByRole.get(r.id); return <button key={r.id} type="button" aria-pressed={roleId === r.id}
           className={`rt-role ${cv ? "has-cv" : ""} ${sdg ? "is-sdg" : ""}`} onClick={() => setRoleId(roleId === r.id ? null : r.id)} data-testid={`button-role-${r.id}`}>
           <span>{r.title}</span>
           <span className="rt-role-tags">
             {cv && <em className="tag cv"><Check size={9} />CV</em>}
+            {fit?.matchScore != null && <em className="tag fit" data-testid={`tag-role-fit-${r.id}`}>Fit {fit.matchScore}</em>}
             {sdg && <em className="tag sdg">SDG {goal}</em>}
             {r.laterCareer && <em className="tag later">Later career</em>}
             {layer === "ai" && <em className="tag">{r.exposure.status === "reviewed" && r.exposure.score != null ? `AI ${r.exposure.score}/10` : r.exposure.status === "draft" ? "AI draft" : "AI n/a"}</em>}

@@ -120,6 +120,17 @@ export const MatchRadarBody = zod.object({
   "remoteConsent": zod.literal(true)
 })
 
+export const matchRadarResponseRolesItemOverlapScoreMin = 0;
+export const matchRadarResponseRolesItemOverlapScoreMax = 1;
+
+export const matchRadarResponseRolesItemTopicalScoreMin = 0;
+export const matchRadarResponseRolesItemTopicalScoreMax = 1;
+
+export const matchRadarResponseRolesItemMatchScoreMin = 0;
+export const matchRadarResponseRolesItemMatchScoreMax = 100;
+
+
+
 export const MatchRadarResponse = zod.object({
   "version": zod.string(),
   "mode": zod.enum(['keyword-local', 'keyword-fallback', 'semantic']),
@@ -138,7 +149,11 @@ export const MatchRadarResponse = zod.object({
   "roles": zod.array(zod.object({
   "roleId": zod.string(),
   "matchedSkillIds": zod.array(zod.string()),
-  "missingSkillIds": zod.array(zod.string())
+  "missingSkillIds": zod.array(zod.string()),
+  "overlapScore": zod.number().min(matchRadarResponseRolesItemOverlapScoreMin).max(matchRadarResponseRolesItemOverlapScoreMax).describe('Share of the occupation\'s skill list evidenced in the CV text. Deterministic and keyword-derived.'),
+  "demandChange": zod.number().nullable().describe('Quarter-on-quarter change in online job offerings for this occupation\'s DOSM major group. Null when the comparison is unavailable.'),
+  "topicalScore": zod.number().min(matchRadarResponseRolesItemTopicalScoreMin).max(matchRadarResponseRolesItemTopicalScoreMax).nullable().describe('Cosine similarity between the evidenced-skill profile and the occupation\'s skill profile from the embedding model. Topical fit only, never a qualification or probability. Null when no embedding was computed.'),
+  "matchScore": zod.number().min(matchRadarResponseRolesItemMatchScoreMin).max(matchRadarResponseRolesItemMatchScoreMax).nullable().describe('Blended occupation match score from topical similarity, keyword overlap and demand direction, using published weights. Null when no embedding was computed.')
 })),
   "truncated": zod.boolean(),
   "liveVerified": zod.boolean()

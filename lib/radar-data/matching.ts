@@ -1,9 +1,45 @@
 import type { RadarEvidence, RadarMatch } from "@workspace/api-client-react";
-import { roles, skills, version } from "./catalogue";
+import { groups, roles, skills, version } from "./catalogue";
 
 export const MAX_TEXT = 12000;
 export const MAX_PHRASES = 48;
 export type Phrase = { text: string; start: number; end: number; kind: RadarEvidence["kind"] };
+
+/** Quarter-on-quarter change for a DOSM major group, or null when the comparison is unavailable. */
+export function groupDemandChange(groupId: string): number | null {
+  const group = groups.find((g) => g.id === groupId);
+  if (!group || group.current == null || group.previous == null || group.previous === 0) return null;
+  return (group.current - group.previous) / group.previous;
+}
+
+/** Query text for topical occupation ranking: the skills we can evidence, as one concept list. */
+export function buildProfileQuery(skillIds: string[]): string {
+  if (!skillIds.length) return "";
+  const labels = skillIds.map((id) => skills.find((s) => s.id === id)?.label ?? id);
+  return `query: ${labels.join(", ")}`;
+}
+
+/** Blend weights for the occupation match score. Published so the number is reproducible. */
+export const MATCH_WEIGHTS = { topical: 0.45, overlap: 0.4, demand: 0.15 } as const;
+/** Topical credit is zero at or below the floor and reaches one across the span. */
+export const TOPICAL_RANGE = { floor: 0.75, span: 0.2 } as const;
+
+/**
+ * Occupation match score, 0-100. Three published terms: topical similarity from the
+ * embedding model, keyword overlap against the occupation skill list, and the demand
+ * direction of the occupation's DOSM group. Similarity is never a qualification claim.
+ */
+export function blendMatchScore(
+  topical: number | null,
+  overlap: number,
+  demand: number | null,
+): number | null {
+  if (topical == null) return null;
+  const t = Math.max(0, Math.min(1, (topical - TOPICAL_RANGE.floor) / TOPICAL_RANGE.span));
+  const d = demand == null ? 0 : Math.max(-1, Math.min(1, demand / 0.25));
+  const blended = MATCH_WEIGHTS.topical * t + MATCH_WEIGHTS.overlap * overlap + MATCH_WEIGHTS.demand * d;
+  return Math.round(Math.max(0, Math.min(1, blended)) * 1000) / 10;
+}
 
 // Deliberately conservative: one negative/intent cue suppresses the whole clause.
 // This is evidence classification, not a language-understanding or proficiency claim.
@@ -43,11 +79,18 @@ export function containsAlias(text: string, alias: string): boolean {
 
 export function roleMatches(evidence: RadarEvidence[]) {
   const accepted = new Set(evidence.filter(e => e.kind === "explicit" || e.kind === "inferred").map(e => e.skillId));
-  return roles.map(role => ({
-    roleId: role.id,
-    matchedSkillIds: role.skillIds.filter(id => accepted.has(id)),
-    missingSkillIds: role.skillIds.filter(id => !accepted.has(id)),
-  }));
+  return roles.map(role => {
+    const matchedSkillIds = role.skillIds.filter(id => accepted.has(id));
+    return {
+      roleId: role.id,
+      matchedSkillIds,
+      missingSkillIds: role.skillIds.filter(id => !accepted.has(id)),
+      overlapScore: role.skillIds.length ? matchedSkillIds.length / role.skillIds.length : 0,
+      demandChange: groupDemandChange(role.groupId),
+      topicalScore: null as number | null,
+      matchScore: null as number | null,
+    };
+  });
 }
 
 export function keywordMatch(

@@ -227,11 +227,29 @@ components:
         similarity: { type: [number, "null"] }
     RadarRoleMatch:
       type: object
-      required: [roleId, matchedSkillIds, missingSkillIds]
+      required: [roleId, matchedSkillIds, missingSkillIds, overlapScore, demandChange, topicalScore, matchScore]
       properties:
         roleId: { type: string }
         matchedSkillIds: { type: array, items: { type: string } }
         missingSkillIds: { type: array, items: { type: string } }
+        overlapScore:
+          type: number
+          minimum: 0
+          maximum: 1
+          description: Share of the occupation's skill list evidenced in the CV text. Deterministic and keyword-derived.
+        demandChange:
+          type: [number, "null"]
+          description: Quarter-on-quarter change in online job offerings for this occupation's DOSM major group. Null when the comparison is unavailable.
+        topicalScore:
+          type: [number, "null"]
+          minimum: 0
+          maximum: 1
+          description: Cosine similarity between the evidenced-skill profile and the occupation's skill profile from the embedding model. Topical fit only, never a qualification or probability. Null when no embedding was computed.
+        matchScore:
+          type: [number, "null"]
+          minimum: 0
+          maximum: 100
+          description: Blended occupation match score from topical similarity, keyword overlap and demand direction, using published weights. Null when no embedding was computed.
     RadarMatch:
       type: object
       required: [version, mode, reason, model, threshold, evidence, roles, truncated, liveVerified]
