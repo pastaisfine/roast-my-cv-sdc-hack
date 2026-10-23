@@ -58,6 +58,9 @@ test("negations, interests, uncertain and team claims do not count as possession
 test("aliases use word boundaries and unknown text does not match", () => {
   assert(!keywordMatch("I am an excellent guitarist").evidence.some(e => e.skillId === "excel" || e.skillId === "git"));
   assert.equal(keywordMatch("unrelated words about a synthetic garden").evidence.length, 0);
+  for (const text of ["I wrote unit tests with Jest.", "I used Jest to test the billing module."]) {
+    assert(keywordMatch(text).evidence.some(e => e.skillId === "software-testing" && e.kind === "explicit"), text);
+  }
 });
 test("labelled multilingual negative evaluation fixtures cannot create accepted skills", () => {
   for (const fixture of evaluationFixtures.filter(f => !f.accepted)) {

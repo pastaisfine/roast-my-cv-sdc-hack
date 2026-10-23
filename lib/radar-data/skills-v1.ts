@@ -10,7 +10,7 @@ const taxonomy = [
   { id: "machine-learning", label: "Machine learning", aliases: ["pembelajaran mesin", "机器学习"] },
   { id: "software-development", label: "Software development", aliases: ["pembangunan perisian", "软件开发", "JavaScript", "TypeScript"] },
   { id: "git", label: "Git", aliases: ["Git version control", "kawalan versi Git", "Git版本控制"] },
-  { id: "software-testing", label: "Software testing", aliases: ["unit testing", "ujian perisian", "软件测试"] },
+  { id: "software-testing", label: "Software testing", aliases: ["unit testing", "unit test", "unit tests", "Jest", "ujian perisian", "软件测试"] },
   { id: "requirements-analysis", label: "Requirements analysis", aliases: ["requirements gathering", "analisis keperluan", "需求分析"] },
   { id: "cybersecurity", label: "Cybersecurity", aliases: ["cyber security", "keselamatan siber", "网络安全"] },
   { id: "incident-response", label: "Incident response", aliases: ["security incident response", "tindak balas insiden", "安全事件响应"] },

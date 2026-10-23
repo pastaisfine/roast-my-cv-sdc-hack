@@ -4,6 +4,7 @@ import pinoHttp from "pino-http";
 import router from "./routes";
 import { logger } from "./lib/logger";
 import ocrRouter from "./routes/ocr";
+import roastRouter from "./routes/roast";
 
 const app: Express = express();
 
@@ -29,6 +30,9 @@ app.use(
 app.use(cors());
 // OCR has its own consent check, rate/resource bounds and larger raster-only parser.
 app.use("/api", ocrRouter);
+// Roast accepts either text or a bounded image, so it also needs its own parser
+// before the app-wide 64kb JSON limit.
+app.use("/api", roastRouter);
 app.use(express.json({ limit: "64kb" }));
 app.use(express.urlencoded({ extended: true }));
 

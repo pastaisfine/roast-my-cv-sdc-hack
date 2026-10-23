@@ -10,6 +10,8 @@
     "smoke:ocr": "../../.pythonlibs/bin/python ocr/check.py",
     "test:radar": "node scripts/radar-check.mjs",
     "smoke:radar": "node scripts/radar-smoke.mjs",
+    "test:roast": "node scripts/roast-check.mjs",
+    "smoke:roast": "node --env-file-if-exists=.env --env-file-if-exists=../../.env scripts/roast-smoke.mjs",
     "dev": "export NODE_ENV=development && pnpm run build && pnpm run start",
     "build": "node ./build.mjs",
     "start": "node --env-file-if-exists=.env --env-file-if-exists=../../.env --enable-source-maps ./dist/index.mjs",

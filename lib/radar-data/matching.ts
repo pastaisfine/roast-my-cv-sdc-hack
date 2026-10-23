@@ -77,12 +77,18 @@ export function containsAlias(text: string, alias: string): boolean {
     .test(text.normalize("NFKC"));
 }
 
-export function roleMatches(evidence: RadarEvidence[]) {
+/**
+ * Occupation overlap needs only the skill id and the deterministic evidence
+ * kind. Keeping the parameter structural lets the LLM-assisted extractor reuse
+ * this ranking without widening the public RadarEvidence contract.
+ */
+export function roleMatches(evidence: Pick<RadarEvidence, "skillId" | "kind">[]) {
   const accepted = new Set(evidence.filter(e => e.kind === "explicit" || e.kind === "inferred").map(e => e.skillId));
   return roles.map(role => {
     const matchedSkillIds = role.skillIds.filter(id => accepted.has(id));
     return {
       roleId: role.id,
+      title: role.title,
       matchedSkillIds,
       missingSkillIds: role.skillIds.filter(id => !accepted.has(id)),
       overlapScore: role.skillIds.length ? matchedSkillIds.length / role.skillIds.length : 0,
