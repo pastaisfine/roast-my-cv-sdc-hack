@@ -115,9 +115,14 @@ catalogue vocabulary is enforced by the server.
 
 ## Rate limits and cost
 
-The free tier for `gemini-3.6-flash` is **5 requests per minute per project and
-model** (observed live). One roast uses two calls (extraction + narrative), and
-a repair attempt can add a third. The default guards are therefore:
+The free tier for `gemini-3.6-flash` is **5 requests per minute and 20 requests
+per day per project and model** (observed live: the daily 429 reports
+`GenerateRequestsPerDayPerProjectPerModel-FreeTier` with `quotaValue: 20`). The
+daily cap is the binding constraint: one roast uses two calls (extraction +
+narrative), so the free tier supports roughly **10 LLM roasts per day**. A repair
+attempt can add a third call and reduce that further.
+
+The default local guards are:
 
 | Env | Default | Meaning |
 | --- | --- | --- |
@@ -127,8 +132,11 @@ a repair attempt can add a third. The default guards are therefore:
 | route window | 30/min | Anonymous requests per process |
 
 These counters are per process and reset on restart/replica change. They are
-cost guards, not a global quota. When the Gemini budget is exhausted the
-endpoint still answers with the deterministic roast.
+cost guards, not a global quota. The provider's 20/day cap is global to the
+project/model and is not affected by the per-process counters. When the Gemini
+budget is exhausted the endpoint still answers with the deterministic roast.
+The 429 cooldown means the fallback can stay active for a minute after the
+provider rejects a call even if the provider quota resets sooner.
 
 ## Environment
 
@@ -156,10 +164,11 @@ pnpm --filter @workspace/api-server run smoke:roast
 
 The smoke test sends fixed synthetic fixtures only and prints a compact report
 (no CV bodies, no provider responses, no credentials). The 30-second delay
-keeps the run inside the free tier's 5 RPM limit. Use
-`ROAST_SMOKE_ONLY=<fixture-name>` for one fixture. `ROAST_DEBUG=true` prints
-provider error bodies on failure when `NODE_ENV` is not `production`; it is
-ignored in production builds.
+keeps the run inside the free tier's 5 RPM limit. A full five-fixture run uses
+roughly 10 calls, about half of the 20/day free-tier allowance, so do not loop
+the smoke test on a free key. Use `ROAST_SMOKE_ONLY=<fixture-name>` for one
+fixture. `ROAST_DEBUG=true` prints provider error bodies on failure when
+`NODE_ENV` is not `production`; it is ignored in production builds.
 
 The deterministic suite does not touch the network:
 
