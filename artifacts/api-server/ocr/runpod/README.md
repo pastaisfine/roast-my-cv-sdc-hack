@@ -66,3 +66,17 @@ a cold start — at your API's ceiling of 10 MB raw / 13.98 MB base64 that is
 *always* the route. `/run` caps at 10 MB whole-request, so only use it queued
 with raw scans ≤ ~7.4 MB, then poll `/status/<id>`; `/runsync` result retention
 is 60 s after completion.
+
+## Wired into the application
+
+`artifacts/api-server/src/lib/ocr-runpod.ts` is the client the API routes use
+when `RUNPOD_OCR_URL` is set: it submits to `/runsync?wait=60000`, falls back
+to `/status/<id>` polling when a cold start outlives the hold (total bound
+180 s, mirroring the local pipe), maps the worker envelope 1:1, its
+`invalid_image` envelope to the same 422 the local pipe produces, and caller
+aborts to 499. With no `RUNPOD_OCR_URL`, `OcrWorker` keeps spawning the local
+Python child exactly as before. Env contract:
+`RUNPOD_OCR_URL=https://api.runpod.ai/v2/<endpoint-id>`,
+`RUNPOD_API_KEY=<create/run key>`, optional `RUNPOD_OCR_POLL_MS` (default
+`3000`; also the test seam). Tests: `pnpm --filter @workspace/api-server run
+test:ocr-runpod`.

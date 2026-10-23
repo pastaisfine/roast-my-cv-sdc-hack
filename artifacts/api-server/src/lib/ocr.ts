@@ -1,15 +1,17 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { resolve } from "node:path";
+import { OcrError, type Result } from "./ocr-types";
+import { remoteInflight, runpodExtract } from "./ocr-runpod";
 
-export class OcrError extends Error {
-  constructor(public status: number, message: string) { super(message); }
-}
-type Result = { text: string; warnings: string[]; model: "english_g2"; device: "cpu" };
+export { OcrError } from "./ocr-types";
 type Job = { imageBase64: string; signal: AbortSignal; resolve: (r: Result) => void; reject: (e: Error) => void; dispose: () => void; timer?: ReturnType<typeof setTimeout> };
 
 /** One private pipe, one reused CPU reader, at most two waiting jobs. No listening port. */
 export class OcrWorker {
   constructor(private createChild = () => spawn(resolve(process.cwd(), "../../.pythonlibs/bin/python"), ["-u", resolve(process.cwd(), "ocr/worker.py")], { stdio: "pipe" })) {}
+  // Serverless hosts cannot spawn the Python child, so the operator points the
+  // same class at the app-owned Runpod endpoint hosting the identical worker.
+  private get remote() { return !!process.env.RUNPOD_OCR_URL && process.env.RUNPOD_OCR_URL.trim() !== ""; }
   private child: ChildProcessWithoutNullStreams | null = null;
   private ready = false;
   private buffer = "";
@@ -17,9 +19,10 @@ export class OcrWorker {
   private queue: Job[] = [];
   private startup?: ReturnType<typeof setTimeout>;
   private cooldown = 0;
-  get pending() { return this.queue.length + (this.active ? 1 : 0); }
+  get pending() { return this.remote ? remoteInflight() : this.queue.length + (this.active ? 1 : 0); }
 
   extract(imageBase64: string, signal: AbortSignal): Promise<Result> {
+    if (this.remote) return runpodExtract(imageBase64, signal, process.env.RUNPOD_OCR_URL!.trim());
     if (signal.aborted) return Promise.reject(new OcrError(499, "OCR cancelled."));
     if (this.pending >= 3) return Promise.reject(new OcrError(429, "OCR is busy. Try again shortly."));
     if (Date.now() < this.cooldown) return Promise.reject(new OcrError(503, "OCR worker unavailable. Paste text or try again later."));

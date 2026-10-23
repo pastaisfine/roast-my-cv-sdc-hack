@@ -30,9 +30,13 @@ or, where the Python OCR worker is available:
 - `consent` is the single explicit permission to send the submitted content to
   Google Gemini for extraction and roasting.
 - `ocrConsent` is required for images and acknowledges that the image is read
-  by the app-owned CPU worker before the extracted text goes to Gemini.
-- On serverless hosts set `OCR_ENABLED=false`; image requests then return `501`
-  and users must paste text.
+  by the app-owned OCR worker — the local CPU pipe, or on serverless hosts the
+  Runpod serverless endpoint that runs the same worker
+  (`RUNPOD_OCR_URL`) — before the extracted text goes to Gemini.
+- On serverless hosts without `RUNPOD_OCR_URL`, set `OCR_ENABLED=false`; image
+  requests then return `501` and users must paste text. With `RUNPOD_OCR_URL`
+  and a real `RUNPOD_API_KEY`, images work in production against the same
+  worker image deployed by `artifacts/api-server/ocr/runpod/`.
 
 ## Response
 
@@ -105,8 +109,10 @@ catalogue vocabulary is enforced by the server.
 - Gemini extraction unavailable → `keywordMatch()` (`extraction.method =
   "keyword-fallback"`).
 - RunPod/embedding unavailable → local keyword occupation ranking
-  (`mode = "keyword-fallback"`). Only skill labels ever reach RunPod, never CV
-  text.
+  (`mode = "keyword-fallback"`). Skill labels — never CV prose — reach the
+  embeddings endpoint. CV images reach only the app-owned OCR endpoint
+  (`RUNPOD_OCR_URL`); it runs the same stateless worker (no volumes, no
+  storage) and returns only the extracted text to this application.
 - Gemini roast unavailable → deterministic template roast
   (`roast.source = "template"`).
 - Provider failures return `200` with a usable fallback, not a 5xx. Invalid
@@ -146,13 +152,17 @@ GEMINI_MODEL=gemini-3.6-flash
 ROAST_ENABLED=true
 ROAST_RPM_LIMIT=5
 ROAST_DAILY_TOKEN_LIMIT=800000
-OCR_ENABLED=true           # set false on Vercel/serverless
+OCR_ENABLED=true           # set false on serverless hosts without RUNPOD_OCR_URL
+RUNPOD_OCR_URL=            # e.g. https://api.runpod.ai/v2/<ocr endpoint id>; empty keeps the local pipe
+RUNPOD_API_KEY=            # bearer credential for the endpoints; server-side only
 ```
 
 Vercel: add `GEMINI_API_KEY`, `GEMINI_MODEL`, `ROAST_ENABLED`,
 `ROAST_RPM_LIMIT` and `ROAST_DAILY_TOKEN_LIMIT` to the project's server-side
-environment, and set `OCR_ENABLED=false`. Never use a `VITE_` prefix for the
-Gemini key.
+environment, plus `OCR_ENABLED=true`, `RUNPOD_OCR_URL` and the real
+`RUNPOD_API_KEY` of the app-owned OCR endpoint so images work in production.
+Without those, keep `OCR_ENABLED=false` and the route falls back to 501 as
+before. Never use a `VITE_` prefix for any of these keys.
 
 ## Smoke test
 
