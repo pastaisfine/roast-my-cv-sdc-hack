@@ -1,0 +1,16 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "installCommand": "pnpm install --frozen-lockfile",
+  "buildCommand": "pnpm --filter @workspace/roast-my-cv run build && pnpm --filter @workspace/api-server run build && mkdir -p api/dist && cp -R artifacts/api-server/dist/. api/dist/",
+  "outputDirectory": "artifacts/roast-my-cv/dist/public",
+  "rewrites": [
+    { "source": "/api/(.*)", "destination": "/api/index.mjs" },
+    { "source": "/(.*)", "destination": "/index.html" }
+  ],
+  "functions": {
+    "api/index.mjs": {
+      "maxDuration": 60,
+      "includeFiles": ["dist/**", "api/dist/**"]
+    }
+  }
+}

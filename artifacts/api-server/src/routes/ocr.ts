@@ -7,6 +7,14 @@ const router: IRouter = Router();
 let windowStart = 0;
 let requests = 0;
 router.post("/ocr/image", (req, res, next) => {
+  // Disabled deployments (e.g. serverless hosts without the Python worker)
+  // answer deterministically instead of pretending to have OCR capacity.
+  if (process.env.OCR_ENABLED === "false") {
+    res.set("Cache-Control", "no-store").status(501).json({
+      error: "OCR image import is disabled on this deployment. Paste your CV text instead.",
+    });
+    return;
+  }
   res.set("Cache-Control", "no-store").set("Pragma", "no-cache");
   if (req.headers["x-ocr-consent"] !== "server-image-processing") {
     res.status(400).json({ error: "Explicit OCR-specific consent is required before sending an image." }); return;
