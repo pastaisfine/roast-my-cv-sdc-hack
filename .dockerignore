@@ -1,0 +1,17 @@
+# Whitelist build context for the OCR worker image. Everything not listed
+# below stays out of the build — including .env, node_modules and .git.
+*
+!pyproject.toml
+!uv.lock
+!artifacts
+!artifacts/api-server
+!artifacts/api-server/ocr
+!artifacts/api-server/ocr/worker.py
+!artifacts/api-server/ocr/runpod
+!artifacts/api-server/ocr/runpod/**
+# Local pre-provisioned weights are excluded so the image build always
+# provisions fresh, checksum-verified copies.
+artifacts/api-server/ocr/models
+artifacts/api-server/ocr/check.py
+**/__pycache__
+*.pyc
